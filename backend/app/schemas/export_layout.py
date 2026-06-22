@@ -1,0 +1,76 @@
+from __future__ import annotations
+
+
+CSV_SEPARATOR = "|"
+
+CSV_HEADER_FIELDS = [
+    "PID_INTRP_CONJTO_PIN",
+    "PID_POSTO_PIN",
+    "INDIC_AREA_REDE_POSTO_PIN",
+    "ALIM_INTRP_PIN",
+    "ESTADO_INTRP",
+    "ALIM_INTRP",
+    "CAR_SE",
+    "INDIC_INTRP_SE_ALIM",
+    "NUM_OCORRENCIA_ADMS",
+    "INDIC_INTRP_AT",
+    "CONS_INTRP",
+    "KVA_INTRP",
+    "NUM_OPER_CHV_INTRP",
+    "NUM_FUNCAO_ELET_HCAI",
+    "DESC_INTRP",
+    "VALID_POS_OPERACAO",
+    "DATA_HORA_INIC_INTRP",
+    "DATA_HORA_FIM_INTRP",
+    "TIPO_EQP_INTRP",
+    "COORD_X_INTRP",
+    "COORD_Y_INTRP",
+    "NUM_SEQ_INTRP",
+    "COD_CAUSA_INTRP",
+    "COD_COMP_INTRP",
+    "COD_AREA_ELET_INTRP",
+    "COD_GRUPO_COMP_INTRP",
+    "COD_COND_CLIMA_INTRP",
+    "COD_TIPO_INTRP",
+    "INDIC_JUMP_INTRP",
+    "NUM_PROTOC_JUSTIF_RESP_INTRP",
+    "TIPO_PROTOC_JUSTIF_INTRP",
+    "COD_CONJTO_ELET_ANEEL_INTRP",
+    "INDIC_CALC_DMIC_INTRP",
+    "INDIC_PONTO_CONEX_INTRP",
+    "NUM_GEO_CHV_INTRP",
+    "TIPO_REDE_CHV_INTRP",
+    "TIPO_CHV_INTRP",
+    "INDIC_PROPR_POSTO_INTRP",
+    "TENSAO_OPER_ALIM_INTRP",
+    "INDIC_DESLIG_ENT_SERV_INTRP",
+    "INDIC_PROPR_CHVP_INTRP",
+    "INDIC_CHVP_INIC_ALIM_INTRP",
+    "PID",
+    "PID_INTRP_UCI",
+    "NUM_INTRP_UCI",
+    "NUM_POSTO_UCI",
+    "NUM_UC_UCI",
+    "TIPO_SIT_UC_UCI",
+    "DTHR_INICIO_INTRP_UC",
+    "NUM_INTRP_INIC_MANOBRA_UCI",
+    "NUM_MOTIVO_TRAT_DIF_UCI",
+    "UC_ACESSANTE",
+    "SIGLA_REGIONAL",
+    "NUM_PROTOC_JUSTIF_RESP_UCI",
+    "TIPO_PROTOC_JUSTIF_UCI",
+    "PID_PIN",
+    "INDIC_PROCES_IND_PIN",
+    "INDIC_SIT_PROCES_INDIC_UCI",
+]
+
+CSV_HEADER = CSV_SEPARATOR.join(CSV_HEADER_FIELDS)
+
+
+def missing_export_columns(available_columns: set[str]) -> list[str]:
+    return [
+        column
+        for column in CSV_HEADER_FIELDS
+        if column not in available_columns
+    ]
+

@@ -1,0 +1,751 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>ADMStoIQS — Prévia Gestor</title>
+    <style>
+      :root {
+        --bg: #05070d;
+        --panel: rgba(18, 27, 43, 0.82);
+        --panel-2: rgba(10, 20, 34, 0.92);
+        --stroke: rgba(74, 196, 255, 0.34);
+        --stroke-soft: rgba(255, 255, 255, 0.08);
+        --text: #f4f8ff;
+        --muted: #9fb4ce;
+        --cyan: #2ec7ff;
+        --green: #39d98a;
+        --red: #ff5b7a;
+        --yellow: #ffd166;
+        --purple: #8d6bff;
+        --shadow: 0 22px 80px rgba(0, 0, 0, 0.42);
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        min-height: 100vh;
+        background:
+          linear-gradient(120deg, rgba(11, 154, 210, 0.12), transparent 35%),
+          radial-gradient(circle at 70% 10%, rgba(91, 61, 255, 0.24), transparent 34%),
+          var(--bg);
+        color: var(--text);
+        font-family: Inter, Segoe UI, Arial, sans-serif;
+      }
+
+      body::before {
+        content: "";
+        position: fixed;
+        inset: 0;
+        pointer-events: none;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.035) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.035) 1px, transparent 1px);
+        background-size: 34px 34px;
+        mask-image: linear-gradient(to bottom, black, transparent 92%);
+      }
+
+      .shell {
+        display: grid;
+        grid-template-columns: 292px 1fr;
+        min-height: 100vh;
+      }
+
+      .sidebar {
+        position: sticky;
+        top: 0;
+        height: 100vh;
+        padding: 26px 22px;
+        border-right: 1px solid var(--stroke-soft);
+        background: rgba(3, 8, 16, 0.74);
+        backdrop-filter: blur(18px);
+      }
+
+      .brand {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        margin-bottom: 28px;
+      }
+
+      .logo {
+        display: grid;
+        place-items: center;
+        width: 46px;
+        height: 46px;
+        border-radius: 14px;
+        font-weight: 900;
+        background: linear-gradient(135deg, #2ed3ff, #7d5cff);
+        box-shadow: 0 12px 40px rgba(46, 199, 255, 0.34);
+      }
+
+      .brand h1 {
+        margin: 0;
+        font-size: 18px;
+      }
+
+      .brand span {
+        display: block;
+        margin-top: 3px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .focus-card,
+      .nav-card,
+      .operator-card {
+        border: 1px solid var(--stroke-soft);
+        border-radius: 20px;
+        background: var(--panel);
+        box-shadow: var(--shadow);
+      }
+
+      .focus-card {
+        padding: 20px;
+        border-color: rgba(255, 91, 122, 0.38);
+        background: linear-gradient(135deg, rgba(255, 91, 122, 0.13), rgba(24, 32, 51, 0.78));
+      }
+
+      .eyebrow {
+        margin: 0 0 8px;
+        color: #ff9aab;
+        font-size: 11px;
+        font-weight: 900;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .focus-number {
+        font-size: 36px;
+        font-weight: 950;
+        color: #ff8ca1;
+      }
+
+      .muted {
+        color: var(--muted);
+      }
+
+      nav {
+        display: grid;
+        gap: 10px;
+        margin-top: 22px;
+      }
+
+      .nav-card {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding: 14px 16px;
+        color: var(--text);
+      }
+
+      .nav-card strong {
+        display: block;
+        font-size: 14px;
+      }
+
+      .nav-card span {
+        display: block;
+        margin-top: 2px;
+        color: var(--muted);
+        font-size: 11px;
+      }
+
+      .badge {
+        min-width: 28px;
+        padding: 5px 8px;
+        border-radius: 999px;
+        text-align: center;
+        font-size: 12px;
+        font-weight: 900;
+        background: rgba(46, 199, 255, 0.12);
+        border: 1px solid rgba(46, 199, 255, 0.3);
+      }
+
+      .operator-card {
+        position: absolute;
+        left: 22px;
+        right: 22px;
+        bottom: 22px;
+        padding: 16px;
+      }
+
+      .main {
+        position: relative;
+        padding: 34px;
+      }
+
+      .hero {
+        display: grid;
+        grid-template-columns: 1fr auto;
+        gap: 24px;
+        align-items: start;
+        margin-bottom: 22px;
+      }
+
+      .hero h2 {
+        margin: 0;
+        font-size: clamp(32px, 4vw, 54px);
+        letter-spacing: -0.05em;
+      }
+
+      .hero p {
+        max-width: 850px;
+        margin: 10px 0 0;
+        color: #c9daf2;
+        line-height: 1.6;
+      }
+
+      .status-pill {
+        display: inline-flex;
+        gap: 10px;
+        align-items: center;
+        padding: 12px 16px;
+        border: 1px solid rgba(57, 217, 138, 0.45);
+        border-radius: 999px;
+        background: rgba(57, 217, 138, 0.12);
+        color: #c9ffe3;
+        font-weight: 800;
+      }
+
+      .actions {
+        display: flex;
+        gap: 12px;
+        justify-content: flex-end;
+        margin: 0 0 18px;
+      }
+
+      button {
+        cursor: pointer;
+        border: 0;
+        border-radius: 14px;
+        padding: 12px 16px;
+        color: #03121c;
+        font-weight: 950;
+        background: linear-gradient(135deg, var(--cyan), #20aee4);
+        box-shadow: 0 14px 34px rgba(46, 199, 255, 0.22);
+      }
+
+      button:disabled {
+        cursor: wait;
+        opacity: 0.65;
+      }
+
+      .message {
+        display: none;
+        margin-bottom: 18px;
+        padding: 13px 16px;
+        border-radius: 16px;
+        border: 1px solid rgba(46, 199, 255, 0.3);
+        background: rgba(46, 199, 255, 0.12);
+      }
+
+      .message.show {
+        display: block;
+      }
+
+      .message.processing {
+        border-color: rgba(255, 91, 122, 0.45);
+        background: rgba(255, 91, 122, 0.16);
+      }
+
+      .message.success {
+        border-color: rgba(57, 217, 138, 0.48);
+        background: rgba(57, 217, 138, 0.14);
+      }
+
+      .dot {
+        width: 10px;
+        height: 10px;
+        border-radius: 50%;
+        background: var(--green);
+        box-shadow: 0 0 22px var(--green);
+      }
+
+      .grid {
+        display: grid;
+        gap: 18px;
+      }
+
+      .cards {
+        grid-template-columns: repeat(4, minmax(0, 1fr));
+      }
+
+      .card,
+      .panel {
+        border: 1px solid var(--stroke-soft);
+        border-radius: 22px;
+        background: linear-gradient(145deg, rgba(19, 28, 45, 0.88), rgba(8, 16, 28, 0.82));
+        box-shadow: var(--shadow);
+      }
+
+      .card {
+        min-height: 142px;
+        padding: 20px;
+      }
+
+      .card h3 {
+        margin: 0 0 24px;
+        color: var(--muted);
+        font-size: 12px;
+        font-weight: 950;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+      }
+
+      .metric {
+        font-size: 34px;
+        font-weight: 950;
+        letter-spacing: -0.04em;
+      }
+
+      .card small {
+        display: block;
+        margin-top: 10px;
+        color: var(--muted);
+      }
+
+      .accent-cyan {
+        border-color: rgba(46, 199, 255, 0.32);
+      }
+
+      .accent-red {
+        border-color: rgba(255, 91, 122, 0.36);
+      }
+
+      .accent-green {
+        border-color: rgba(57, 217, 138, 0.35);
+      }
+
+      .accent-purple {
+        border-color: rgba(141, 107, 255, 0.4);
+      }
+
+      .two-cols {
+        grid-template-columns: 1.3fr 0.7fr;
+        margin-top: 18px;
+      }
+
+      .panel {
+        padding: 22px;
+      }
+
+      .panel h3 {
+        margin: 0 0 16px;
+        font-size: 20px;
+      }
+
+      .steps {
+        display: grid;
+        gap: 12px;
+      }
+
+      .step {
+        display: grid;
+        grid-template-columns: 36px 1fr auto;
+        gap: 14px;
+        align-items: center;
+        padding: 14px;
+        border: 1px solid var(--stroke-soft);
+        border-radius: 16px;
+        background: rgba(255, 255, 255, 0.035);
+      }
+
+      .step-index {
+        display: grid;
+        place-items: center;
+        width: 34px;
+        height: 34px;
+        border-radius: 12px;
+        background: rgba(46, 199, 255, 0.14);
+        color: var(--cyan);
+        font-weight: 950;
+      }
+
+      .step strong {
+        display: block;
+      }
+
+      .step span {
+        display: block;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      .status {
+        padding: 7px 10px;
+        border-radius: 999px;
+        color: #041018;
+        font-size: 11px;
+        font-weight: 950;
+        background: var(--green);
+      }
+
+      .status.warn {
+        background: var(--yellow);
+      }
+
+      .status.info {
+        background: var(--cyan);
+      }
+
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        overflow: hidden;
+        border-radius: 16px;
+      }
+
+      th,
+      td {
+        padding: 13px 12px;
+        border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+        text-align: left;
+        font-size: 13px;
+      }
+
+      th {
+        color: var(--muted);
+        font-size: 11px;
+        letter-spacing: 0.08em;
+        text-transform: uppercase;
+        background: rgba(255, 255, 255, 0.04);
+      }
+
+      .bar {
+        height: 11px;
+        overflow: hidden;
+        border-radius: 999px;
+        background: rgba(255, 255, 255, 0.08);
+      }
+
+      .bar span {
+        display: block;
+        height: 100%;
+        border-radius: inherit;
+        background: linear-gradient(90deg, var(--cyan), var(--purple));
+      }
+
+      .footer-note {
+        margin-top: 18px;
+        color: var(--muted);
+        font-size: 12px;
+      }
+
+      @media (max-width: 1180px) {
+        .shell {
+          grid-template-columns: 1fr;
+        }
+
+        .sidebar {
+          position: relative;
+          height: auto;
+        }
+
+        .operator-card {
+          position: static;
+          margin-top: 20px;
+        }
+
+        .cards,
+        .two-cols {
+          grid-template-columns: 1fr;
+        }
+      }
+    </style>
+  </head>
+  <body>
+    <div class="shell">
+      <aside class="sidebar">
+        <div class="brand">
+          <div class="logo">AI</div>
+          <div>
+            <h1>ADMStoIQS</h1>
+            <span>Middleware ADMS → IQS</span>
+          </div>
+        </div>
+
+        <section class="focus-card">
+          <p class="eyebrow">Foco de atuação</p>
+          <div class="focus-number" id="pendenciasFoco">—</div>
+          <div class="muted">Pendências estimadas da apuração</div>
+        </section>
+
+        <nav>
+          <div class="nav-card"><div><strong>Preparar apuração</strong><span>CSV, UNION, apuração</span></div><div class="badge">OK</div></div>
+          <div class="nav-card"><div><strong>Qualidade OMS</strong><span>Regras e pendências</span></div><div class="badge" id="badgeRegras">—</div></div>
+          <div class="nav-card"><div><strong>Marts IQS</strong><span>Complementos externos</span></div><div class="badge" id="badgeIqs">—</div></div>
+          <div class="nav-card"><div><strong>Regulatório</strong><span>DEC/FEC e ressarcimento</span></div><div class="badge">Fase 2</div></div>
+          <div class="nav-card"><div><strong>Exportação IQS</strong><span>CSVs regionais finais</span></div><div class="badge">Gov</div></div>
+        </nav>
+
+        <section class="operator-card">
+          <strong>Prévia para gestor</strong>
+          <div class="muted">Dados locais + fallback executivo</div>
+        </section>
+      </aside>
+
+      <main class="main">
+        <header class="hero">
+          <div>
+            <h2>Visão executiva ADMStoIQS</h2>
+            <p>
+              Este painel apresenta a proposta operacional do middleware: processar diariamente os arquivos ADMS,
+              enriquecer a apuração com dados IQS, reduzir falhas antes do envio e registrar decisões de governança.
+            </p>
+          </div>
+          <div class="status-pill"><span class="dot"></span><span id="statusApi">Carregando API...</span></div>
+        </header>
+
+        <div class="actions">
+          <button id="btnMaterializarPendencias" type="button">Atualizar pendências</button>
+          <button id="btnMaterializarIqs" type="button">Atualizar marts IQS</button>
+        </div>
+
+        <div id="message" class="message"></div>
+
+        <section class="grid cards">
+          <article class="card accent-cyan">
+            <h3>Apuração atual</h3>
+            <div class="metric" id="totalRegistros">—</div>
+            <small>Registros no mart de apuração</small>
+          </article>
+          <article class="card accent-red">
+            <h3>Pendências OMS</h3>
+            <div class="metric" id="pendencias">—</div>
+            <small>Tratamentos antes da exportação</small>
+          </article>
+          <article class="card accent-purple">
+            <h3>Fontes IQS</h3>
+            <div class="metric" id="fontesIqs">3/5</div>
+            <small>Marts externos já em formação</small>
+          </article>
+          <article class="card accent-green">
+            <h3>Risco mitigado</h3>
+            <div class="metric">Gov</div>
+            <small>Logs, usuário, justificativa e aprovação</small>
+          </article>
+        </section>
+
+        <section class="grid two-cols">
+          <article class="panel">
+            <h3>Esteira operacional diária</h3>
+            <div class="steps">
+              <div class="step"><div class="step-index">1</div><div><strong>CSV ADMS</strong><span>Verifica pendentes em P:\Common\IQS\ADMS\Backup</span></div><div class="status">Estável</div></div>
+              <div class="step"><div class="step-index">2</div><div><strong>Parquet OMS</strong><span>Processa incremental, deduplica e preserva regional</span></div><div class="status">Estável</div></div>
+              <div class="step"><div class="step-index">3</div><div><strong>Apuração mensal</strong><span>Filtra início/fim dentro do mês e remove canceladas quando solicitado</span></div><div class="status">OK</div></div>
+              <div class="step"><div class="step-index">4</div><div><strong>Marts IQS</strong><span>Consumidores, faturamento, UC/regional e regras externas</span></div><div class="status info">Em evolução</div></div>
+              <div class="step"><div class="step-index">5</div><div><strong>CSV final IQS</strong><span>Geração regional com trilha de alterações</span></div><div class="status warn">Próxima fase</div></div>
+            </div>
+          </article>
+
+          <article class="panel">
+            <h3>Impacto esperado</h3>
+            <table>
+              <thead><tr><th>Indicador</th><th>Antes</th><th>Depois</th></tr></thead>
+              <tbody>
+                <tr><td>Falhas de consistência</td><td>Alto</td><td>Reduzido</td></tr>
+                <tr><td>Retrabalho manual</td><td>Elevado</td><td>Governado</td></tr>
+                <tr><td>DEC/FEC</td><td>Base bruta</td><td>Base tratada</td></tr>
+                <tr><td>Ressarcimento</td><td>Estimativa inicial</td><td>Estimativa pós-tratamento</td></tr>
+              </tbody>
+            </table>
+            <p class="footer-note">Cálculos regulatórios devem ser validados conforme PRODIST Módulo 8 antes de uso oficial.</p>
+          </article>
+        </section>
+
+        <section class="grid two-cols">
+          <article class="panel">
+            <h3>Marts IQS materializados</h3>
+            <table>
+              <thead><tr><th>Fonte</th><th>Status</th><th>Linhas</th><th>Cobertura</th></tr></thead>
+              <tbody id="iqsTable">
+                <tr><td>Consumidores regional</td><td>Processado</td><td>7</td><td><div class="bar"><span style="width: 100%"></span></div></td></tr>
+                <tr><td>Consumidor faturado regional</td><td>Processado</td><td>6</td><td><div class="bar"><span style="width: 100%"></span></div></td></tr>
+                <tr><td>Consistência UC/regional</td><td>Processado</td><td>18</td><td><div class="bar"><span style="width: 100%"></span></div></td></tr>
+              </tbody>
+            </table>
+          </article>
+
+          <article class="panel">
+            <h3>Mensagem para decisão</h3>
+            <p class="muted">
+              O ADMStoIQS passa a funcionar como uma camada local de saneamento e governança entre ADMS e IQS,
+              sem gravar dados operacionais em banco central e mantendo rastreabilidade em Parquet.
+            </p>
+            <div class="steps">
+              <div class="step"><div class="step-index">✓</div><div><strong>Sem banco central</strong><span>Processamento local com Parquet e DuckDB</span></div><div class="status">Seguro</div></div>
+              <div class="step"><div class="step-index">✓</div><div><strong>Credencial IQS via .env</strong><span>Senha fora do GitHub</span></div><div class="status">OK</div></div>
+              <div class="step"><div class="step-index">→</div><div><strong>Próximo investimento</strong><span>Dashboard regulatório e camada de pendências materializada</span></div><div class="status warn">Planejado</div></div>
+            </div>
+          </article>
+        </section>
+      </main>
+    </div>
+
+    <script>
+      const API = "http://127.0.0.1:8000";
+      const ANOMES = "202605";
+
+      const formatNumber = (value) => {
+        const number = Number(value || 0);
+        return Number.isFinite(number) ? number.toLocaleString("pt-BR") : "—";
+      };
+
+      async function loadResumo() {
+        try {
+          const response = await fetch(`${API}/mart/resumo`);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          const total = data.total_registros ?? data.total ?? 0;
+          const pendencias = data.pendencias_totais ?? data.pendentes ?? 0;
+          document.getElementById("statusApi").textContent = "API conectada";
+          document.getElementById("totalRegistros").textContent = formatNumber(total);
+          document.getElementById("pendencias").textContent = formatNumber(pendencias);
+          document.getElementById("pendenciasFoco").textContent = formatNumber(pendencias);
+          document.getElementById("badgeRegras").textContent = formatNumber(
+            (data.horario_negativo || 0) + (data.sobreposicao_interrupcao || data.sobreposicoes || 0)
+          );
+        } catch (error) {
+          document.getElementById("statusApi").textContent = "Prévia offline";
+          document.getElementById("totalRegistros").textContent = "20,9 mi";
+          document.getElementById("pendencias").textContent = "Em cálculo";
+          document.getElementById("pendenciasFoco").textContent = "—";
+          document.getElementById("badgeRegras").textContent = "Gov";
+        }
+      }
+
+      async function loadIqsResumo() {
+        try {
+          const response = await fetch(`${API}/iqs/resumo?_=${Date.now()}`);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          const arquivos = data.arquivos || [];
+          const processadas = arquivos.filter((item) => item.status === "processado").length;
+          document.getElementById("fontesIqs").textContent = `${processadas}/${arquivos.length || 5}`;
+          document.getElementById("badgeIqs").textContent = processadas;
+          if (arquivos.length) {
+            document.getElementById("iqsTable").innerHTML = arquivos
+              .map((item) => `
+                <tr>
+                  <td>${item.fonte}</td>
+                  <td>${item.status}</td>
+                  <td>${formatNumber(item.linhas_mart || item.linhas_raw)}</td>
+                  <td><div class="bar"><span style="width: ${item.status === "processado" ? 100 : 20}%"></span></div></td>
+                </tr>
+              `)
+              .join("");
+          }
+        } catch (error) {
+          document.getElementById("badgeIqs").textContent = "3";
+        }
+      }
+
+      async function loadPendenciasResumo() {
+        try {
+          const response = await fetch(`${API}/apuracao/pendencias/resumo`);
+          if (!response.ok) throw new Error(`HTTP ${response.status}`);
+          const data = await response.json();
+          if (data.status !== "processado") return;
+
+          const total = data.total_pendencias || 0;
+          const porRegra = data.por_regra || {};
+          document.getElementById("pendencias").textContent = formatNumber(total);
+          document.getElementById("pendenciasFoco").textContent = formatNumber(total);
+          document.getElementById("badgeRegras").textContent = formatNumber(total);
+
+          const horario = porRegra.horario_negativo || 0;
+          const sobreposicao = porRegra.sobreposicao_interrupcao || 0;
+          const semCausa = porRegra.sem_causa_componente || 0;
+          const rows = [
+            ["Horário negativo", horario],
+            ["Sobreposição interrupção", sobreposicao],
+            ["Sem causa/componente", semCausa],
+          ];
+
+          const table = document.querySelector("#iqsTable");
+          if (table && total > 0) {
+            table.innerHTML += rows
+              .map(([nome, valor]) => `
+                <tr>
+                  <td>${nome}</td>
+                  <td>Pendente</td>
+                  <td>${formatNumber(valor)}</td>
+                  <td><div class="bar"><span style="width: ${Math.min(100, (valor / total) * 100)}%"></span></div></td>
+                </tr>
+              `)
+              .join("");
+          }
+        } catch (error) {
+          // A prévia mantém fallback visual se a API ainda não tiver pendências materializadas.
+        }
+      }
+
+      function showMessage(text, type = "info") {
+        const element = document.getElementById("message");
+        element.textContent = text;
+        element.className = `message show ${type}`;
+      }
+
+      async function materializarIqs() {
+        const button = document.getElementById("btnMaterializarIqs");
+        button.disabled = true;
+        showMessage("Aguarde processamento dos marts IQS...", "processing");
+        try {
+          const response = await fetch(`${API}/iqs/materializar/${ANOMES}`, { method: "POST" });
+          if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || `HTTP ${response.status}`);
+          }
+          const data = await response.json();
+          if (data.status === "erro") {
+            throw new Error(data.erro || "Erro não detalhado na materialização IQS.");
+          }
+          const arquivos = data.arquivos || [];
+          const processadas = arquivos.filter((item) => item.status === "processado").length;
+          const pendentes = arquivos.filter((item) => item.status === "pendente_raw").length;
+          const erros = arquivos.filter((item) => item.status === "erro").length;
+          const tipo = processadas > 0 && erros === 0 ? "success" : "processing";
+          showMessage(
+            `Processamento concluído. Processadas: ${processadas}. Pendentes raw: ${pendentes}. Erros: ${erros}.`,
+            tipo
+          );
+          await loadIqsResumo();
+        } catch (error) {
+          showMessage(`Falha ao materializar IQS: ${error.message}`, "processing");
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      async function materializarPendencias() {
+        const button = document.getElementById("btnMaterializarPendencias");
+        button.disabled = true;
+        showMessage("Aguarde processamento das pendências da apuração...", "processing");
+        try {
+          const response = await fetch(`${API}/apuracao/pendencias/materializar/${ANOMES}`, { method: "POST" });
+          if (!response.ok) {
+            const text = await response.text();
+            throw new Error(text || `HTTP ${response.status}`);
+          }
+          const data = await response.json();
+          showMessage(`Processamento concluído. ${formatNumber(data.total_pendencias)} pendência(s) materializada(s).`, "success");
+          await loadPendenciasResumo();
+        } catch (error) {
+          showMessage(`Falha ao materializar pendências: ${error.message}`, "processing");
+        } finally {
+          button.disabled = false;
+        }
+      }
+
+      loadResumo();
+      loadIqsResumo();
+      loadPendenciasResumo();
+      document.getElementById("btnMaterializarIqs").addEventListener("click", materializarIqs);
+      document.getElementById("btnMaterializarPendencias").addEventListener("click", materializarPendencias);
+    </script>
+  </body>
+</html>
