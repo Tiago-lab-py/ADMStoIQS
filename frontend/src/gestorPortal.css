@@ -213,6 +213,13 @@ select {
   text-decoration: none;
 }
 
+.gestor-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
 .gestor-status {
   margin-bottom: 18px;
   border: 1px solid var(--gestor-line);
@@ -430,5 +437,9 @@ select {
 
   .gestor-grid--cards {
     grid-template-columns: 1fr;
+  }
+
+  .gestor-actions {
+    justify-content: flex-start;
   }
 }

@@ -15,6 +15,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from backend.app.api.iqs_routes import router as iqs_router
 from backend.app.api.pendencias_routes import router as pendencias_router
 from backend.app.api.routes import router as api_router
+from backend.app.services.indicadores_continuidade_service import IndicadoresContinuidadeService
 from backend.app.services.sobreposicao_interrupcao_service import SobreposicaoInterrupcaoService
 from backend.app.services.tratamento_massivo_service import TratamentoMassivoService
 
@@ -403,6 +404,124 @@ def create_app() -> FastAPI:
             "total_linhas": result.total_linhas,
             "arquivos": result.arquivos,
             "status": "processado",
+        }
+
+    @app.post("/indicadores/continuidade/{anomes}/materializar")
+    def materializar_indicadores_continuidade(anomes: str) -> dict[str, Any]:
+        try:
+            result = IndicadoresContinuidadeService().materializar(anomes)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+        return {
+            "anomes": result.anomes,
+            "origem_antes": str(result.origem_antes),
+            "origem_depois": str(result.origem_depois),
+            "mart_uc": str(result.mart_uc),
+            "mart_agregado": str(result.mart_agregado),
+            "mart_comparativo": str(result.mart_comparativo),
+            "total_uc": result.total_uc,
+            "total_agregado": result.total_agregado,
+            "total_comparativo": result.total_comparativo,
+            "fonte_denominador": result.fonte_denominador,
+            "filtro_faturamento": result.filtro_faturamento,
+            "status": "processado",
+        }
+
+    @app.get("/indicadores/continuidade/{anomes}/resumo")
+    def resumo_indicadores_continuidade(anomes: str) -> dict[str, Any]:
+        comparativo_path = PROJECT_ROOT / "data" / "mart" / "indicadores" / f"indicadores_comparativo_{anomes}.parquet"
+        if not comparativo_path.exists():
+            return {
+                "anomes": anomes,
+                "arquivo": str(comparativo_path),
+                "status": "pendente",
+                "copel": None,
+                "regionais": [],
+            }
+
+        with duckdb.connect(database=":memory:") as connection:
+            copel_result = connection.execute(
+                """
+                SELECT *
+                FROM read_parquet(?)
+                WHERE nivel = 'COPEL'
+                LIMIT 1
+                """,
+                [str(comparativo_path)],
+            )
+            copel_columns = [column[0] for column in copel_result.description]
+            copel_rows = copel_result.fetchall()
+            regionais_result = connection.execute(
+                """
+                SELECT *
+                FROM read_parquet(?)
+                WHERE nivel = 'REGIONAL'
+                ORDER BY regional_origem
+                """,
+                [str(comparativo_path)],
+            )
+            regionais_columns = [column[0] for column in regionais_result.description]
+            regionais_rows = regionais_result.fetchall()
+
+        return {
+            "anomes": anomes,
+            "arquivo": str(comparativo_path),
+            "status": "processado",
+            "copel": _rows_to_dicts(copel_columns, copel_rows)[0] if copel_rows else None,
+            "regionais": _rows_to_dicts(regionais_columns, regionais_rows),
+        }
+
+    @app.get("/indicadores/continuidade/{anomes}/comparativo")
+    def consultar_indicadores_comparativo(
+        anomes: str,
+        nivel: str | None = Query(default=None),
+        limit: int = Query(default=100, ge=1, le=1000),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        comparativo_path = PROJECT_ROOT / "data" / "mart" / "indicadores" / f"indicadores_comparativo_{anomes}.parquet"
+        if not comparativo_path.exists():
+            raise HTTPException(
+                status_code=404,
+                detail=(
+                    f"Indicadores não encontrados: {comparativo_path}. "
+                    f"Execute POST /indicadores/continuidade/{anomes}/materializar."
+                ),
+            )
+
+        filters = []
+        params: list[Any] = [str(comparativo_path)]
+        if nivel:
+            filters.append("nivel = ?")
+            params.append(nivel.upper())
+        where_sql = f"WHERE {' AND '.join(filters)}" if filters else ""
+
+        with duckdb.connect(database=":memory:") as connection:
+            total = connection.execute(
+                f"SELECT COUNT(*) FROM read_parquet(?) {where_sql}",
+                params,
+            ).fetchone()[0]
+            result = connection.execute(
+                f"""
+                SELECT *
+                FROM read_parquet(?)
+                {where_sql}
+                ORDER BY nivel, regional_origem, cod_conjunto_aneel
+                LIMIT ? OFFSET ?
+                """,
+                [*params, limit, offset],
+            )
+            columns = [column[0] for column in result.description]
+            rows = result.fetchall()
+
+        return {
+            "anomes": anomes,
+            "arquivo": str(comparativo_path),
+            "nivel": nivel,
+            "limit": limit,
+            "offset": offset,
+            "total": total,
+            "registros": _rows_to_dicts(columns, rows),
         }
 
     @app.get("/apuracao/decisoes/log")

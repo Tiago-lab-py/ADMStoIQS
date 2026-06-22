@@ -1,9 +1,23 @@
 import { useCallback, useEffect, useMemo, useState } from 'react'
-import { getPortalFilasResumo, getPortalIqsResumo, getPortalMartResumo, IqsResumo, MartResumo } from './gestorApi'
+import {
+  exportarPortalTratamentoCsv,
+  gerarPortalTratamentoMassivo,
+  getPortalIndicadoresResumo,
+  getPortalFilasResumo,
+  getPortalIqsResumo,
+  getPortalMartResumo,
+  getPortalTratamentoResumo,
+  IndicadoresResumo,
+  materializarPortalIndicadores,
+  IqsResumo,
+  MartResumo,
+  TratamentoExportacao,
+  TratamentoResumo,
+} from './gestorApi'
 import { FilaResumo } from './filasApi'
 import './gestorPortal.css'
 
-type PortalPage = 'dashboard' | 'etl' | 'filas' | 'iqs' | 'governanca'
+type PortalPage = 'dashboard' | 'etl' | 'produto' | 'indicadores' | 'filas' | 'iqs' | 'governanca'
 
 type LoadState = {
   status: 'idle' | 'loading' | 'success' | 'error'
@@ -17,6 +31,8 @@ const ruleLabels: Record<string, string> = {
 }
 
 function formatNumber(value: unknown): string {
+  if (typeof value === 'number') return value.toLocaleString('pt-BR')
+  if (typeof value === 'string' && value.trim() && Number.isNaN(Number(value))) return value
   return Number(value || 0).toLocaleString('pt-BR')
 }
 
@@ -83,6 +99,14 @@ function Sidebar({
           <span>ETL operacional</span>
           <small>CSV, UNION e apuração</small>
         </button>
+        <button className={activePage === 'produto' ? 'is-active' : ''} onClick={() => onNavigate('produto')} type="button">
+          <span>Produto IQS</span>
+          <small>Tratado e CSVs finais</small>
+        </button>
+        <button className={activePage === 'indicadores' ? 'is-active' : ''} onClick={() => onNavigate('indicadores')} type="button">
+          <span>Indicadores</span>
+          <small>DEC, FEC, DIC, FIC, DMIC</small>
+        </button>
         <button className={activePage === 'filas' ? 'is-active' : ''} onClick={() => onNavigate('filas')} type="button">
           <span>Filas de correção</span>
           <small>Por regra materializada</small>
@@ -105,11 +129,13 @@ function DashboardPage({
   filasResumo,
   iqsResumo,
   martResumo,
+  indicadoresResumo,
 }: {
   anomes: string
   filasResumo: FilaResumo | null
   iqsResumo: IqsResumo | null
   martResumo: MartResumo | null
+  indicadoresResumo: IndicadoresResumo | null
 }) {
   const porRegra = useMemo(() => {
     const rules = filasResumo?.por_regra ?? []
@@ -118,6 +144,7 @@ function DashboardPage({
 
   const iqsErros = iqsResumo?.arquivos?.filter((item) => item.status === 'erro').length ?? 0
   const iqsPendentes = iqsResumo?.arquivos?.filter((item) => item.status === 'pendente_raw').length ?? 0
+  const copel = indicadoresResumo?.copel
 
   return (
     <>
@@ -127,6 +154,14 @@ function DashboardPage({
         <Card label="Horário negativo" value={porRegra.horario_negativo} hint="Correção de data/hora" accent="warning" />
         <Card label="Sem causa/componente" value={porRegra.sem_causa_componente} hint="Campos ausentes" />
         <Card label="Fontes IQS OK" value={iqsResumo?.fontes_processadas} hint={`${iqsPendentes} pendente(s), ${iqsErros} erro(s)`} accent="success" />
+      </section>
+
+      <section className="gestor-grid gestor-grid--cards">
+        <Card label="DEC antes" value={copel?.dec_antes?.toFixed?.(4) ?? 0} hint="COPEL em horas" />
+        <Card label="DEC depois" value={copel?.dec_depois?.toFixed?.(4) ?? 0} hint="Após tratamento" accent="success" />
+        <Card label="FEC antes" value={copel?.fec_antes?.toFixed?.(4) ?? 0} hint="COPEL" />
+        <Card label="FEC depois" value={copel?.fec_depois?.toFixed?.(4) ?? 0} hint="Após tratamento" accent="success" />
+        <Card label="DMIC máx." value={copel?.dmic_max_depois?.toFixed?.(2) ?? 0} hint="Depois, em horas" />
       </section>
 
       <section className="gestor-panel">
@@ -153,6 +188,126 @@ function DashboardPage({
             <span>Mart resumo</span>
             <strong>{martResumo ? 'disponível' : 'não carregado'}</strong>
           </div>
+        </div>
+      </section>
+    </>
+  )
+}
+
+function IndicadoresPage({
+  anomes,
+  indicadoresResumo,
+  onResumoUpdate,
+}: {
+  anomes: string
+  indicadoresResumo: IndicadoresResumo | null
+  onResumoUpdate: (resumo: IndicadoresResumo) => void
+}) {
+  const [actionState, setActionState] = useState<LoadState>({
+    status: 'idle',
+    message: 'Aguardando materialização dos indicadores.',
+  })
+
+  const materializar = async () => {
+    setActionState({ status: 'loading', message: 'Aguarde processamento: materializando DEC/FEC/DIC/FIC/DMIC...' })
+    try {
+      await materializarPortalIndicadores(anomes)
+      const resumo = await getPortalIndicadoresResumo(anomes)
+      onResumoUpdate(resumo)
+      setActionState({ status: 'success', message: 'Processamento concluído: indicadores atualizados.' })
+    } catch (error) {
+      setActionState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Falha ao materializar indicadores.',
+      })
+    }
+  }
+
+  const copel = indicadoresResumo?.copel
+
+  return (
+    <>
+      <section className="gestor-grid gestor-grid--cards">
+        <Card label="DEC antes" value={copel?.dec_antes?.toFixed?.(4) ?? 0} hint="COPEL em horas" />
+        <Card label="DEC depois" value={copel?.dec_depois?.toFixed?.(4) ?? 0} hint="Após tratamento" accent="success" />
+        <Card label="FEC antes" value={copel?.fec_antes?.toFixed?.(4) ?? 0} hint="COPEL" />
+        <Card label="FEC depois" value={copel?.fec_depois?.toFixed?.(4) ?? 0} hint="Após tratamento" accent="success" />
+        <Card label="DMIC máx. depois" value={copel?.dmic_max_depois?.toFixed?.(2) ?? 0} hint="Horas" />
+      </section>
+
+      <section className="gestor-panel">
+        <div className="gestor-panel-title">
+          <div>
+            <h2>Indicadores de continuidade</h2>
+            <p>Comparativo antes/depois do tratamento massivo para apoiar decisão do gestor.</p>
+          </div>
+          <button className="gestor-primary" onClick={() => void materializar()} type="button">
+            Materializar indicadores
+          </button>
+        </div>
+
+        <div className={`gestor-status gestor-status--${actionState.status}`}>{actionState.message}</div>
+
+        <div className="gestor-kpis gestor-kpis--single">
+          <div>
+            <span>Arquivo comparativo</span>
+            <strong>{indicadoresResumo?.arquivo ?? '-'}</strong>
+          </div>
+          <div>
+            <span>Fonte denominador</span>
+            <strong>{copel?.fonte_denominador ?? '-'}</strong>
+          </div>
+          <div>
+            <span>Regra líquido</span>
+            <strong>{copel?.regra_liquido ?? '-'}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="gestor-panel">
+        <div className="gestor-panel-title">
+          <div>
+            <h2>Regionais</h2>
+            <p>Impacto do tratamento por regional.</p>
+          </div>
+        </div>
+
+        <div className="gestor-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Regional</th>
+                <th>UCs</th>
+                <th>DEC antes</th>
+                <th>DEC depois</th>
+                <th>Δ DEC</th>
+                <th>FEC antes</th>
+                <th>FEC depois</th>
+                <th>Δ FEC</th>
+                <th>DMIC depois</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(indicadoresResumo?.regionais ?? []).map((item) => (
+                <tr key={`${item.regional_origem}-${item.cod_conjunto_aneel}`}>
+                  <td>{item.regional_origem}</td>
+                  <td>{formatNumber(item.quantidade_ucs)}</td>
+                  <td>{item.dec_antes?.toFixed?.(4) ?? '-'}</td>
+                  <td>{item.dec_depois?.toFixed?.(4) ?? '-'}</td>
+                  <td>{item.dec_delta?.toFixed?.(4) ?? '-'}</td>
+                  <td>{item.fec_antes?.toFixed?.(4) ?? '-'}</td>
+                  <td>{item.fec_depois?.toFixed?.(4) ?? '-'}</td>
+                  <td>{item.fec_delta?.toFixed?.(4) ?? '-'}</td>
+                  <td>{item.dmic_max_depois?.toFixed?.(2) ?? '-'}</td>
+                </tr>
+              ))}
+              {!indicadoresResumo?.regionais?.length ? (
+                <tr>
+                  <td colSpan={9}>Indicadores ainda não materializados para a competência.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
         </div>
       </section>
     </>
@@ -232,6 +387,149 @@ function EtlPage({ anomes }: { anomes: string }) {
         </div>
       </div>
     </section>
+  )
+}
+
+function ProdutoIqsPage({
+  anomes,
+  tratamentoResumo,
+  onResumoUpdate,
+  onRefresh,
+}: {
+  anomes: string
+  tratamentoResumo: TratamentoResumo | null
+  onResumoUpdate: (resumo: TratamentoResumo) => void
+  onRefresh: () => Promise<void>
+}) {
+  const [actionState, setActionState] = useState<LoadState>({
+    status: 'idle',
+    message: 'Aguardando ação do gestor.',
+  })
+  const [exportacao, setExportacao] = useState<TratamentoExportacao | null>(null)
+
+  const remocoes = useMemo(() => {
+    return Object.fromEntries((tratamentoResumo?.remocoes ?? []).map((item) => [item.regra, item.total]))
+  }, [tratamentoResumo])
+
+  const gerarTratado = async () => {
+    setActionState({ status: 'loading', message: 'Aguarde processamento: gerando base tratada...' })
+    try {
+      const result = await gerarPortalTratamentoMassivo(anomes)
+      onResumoUpdate({
+        anomes: result.anomes,
+        parquet: result.parquet,
+        log: result.log,
+        status: result.status,
+        total_final: result.total_final,
+        remocoes: [
+          { regra: 'horario_negativo', total: result.removido_horario_negativo ?? 0 },
+          { regra: 'sem_causa_componente', total: result.removido_sem_causa_componente ?? 0 },
+          { regra: 'sobreposicao_interrupcao', total: result.removido_sobreposicao_interrupcao ?? 0 },
+        ],
+      })
+      setActionState({ status: 'success', message: 'Processamento concluído: base tratada gerada.' })
+      await onRefresh()
+    } catch (error) {
+      setActionState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Falha ao gerar base tratada.',
+      })
+    }
+  }
+
+  const exportarCsv = async () => {
+    setActionState({ status: 'loading', message: 'Aguarde processamento: exportando CSVs regionais...' })
+    try {
+      const result = await exportarPortalTratamentoCsv(anomes)
+      setExportacao(result)
+      setActionState({
+        status: 'success',
+        message: `Processamento concluído: ${result.total_arquivos} arquivo(s) exportado(s).`,
+      })
+    } catch (error) {
+      setActionState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Falha ao exportar CSVs tratados.',
+      })
+    }
+  }
+
+  return (
+    <>
+      <section className="gestor-grid gestor-grid--cards">
+        <Card label="Status tratado" value={tratamentoResumo?.status ?? 'pendente'} hint="Base mensal final" accent="success" />
+        <Card label="Total final" value={tratamentoResumo?.total_final} hint="Linhas após limpeza" />
+        <Card label="Horário negativo" value={remocoes.horario_negativo} hint="Removidos" accent="warning" />
+        <Card label="Causa/componente" value={remocoes.sem_causa_componente} hint="Removidos" />
+        <Card label="Sobreposição" value={remocoes.sobreposicao_interrupcao} hint="Removidos" accent="danger" />
+      </section>
+
+      <section className="gestor-panel">
+        <div className="gestor-panel-title">
+          <div>
+            <h2>Produto IQS massivo</h2>
+            <p>Gera a base tratada e exporta CSVs regionais com o layout esperado pelo IQS.</p>
+          </div>
+          <div className="gestor-actions">
+            <button className="gestor-primary" onClick={() => void gerarTratado()} type="button">
+              Gerar base tratada
+            </button>
+            <button className="gestor-primary" onClick={() => void exportarCsv()} type="button">
+              Exportar CSV IQS
+            </button>
+          </div>
+        </div>
+
+        <div className={`gestor-status gestor-status--${actionState.status}`}>{actionState.message}</div>
+
+        <div className="gestor-kpis gestor-kpis--single">
+          <div>
+            <span>Parquet tratado</span>
+            <strong>{tratamentoResumo?.parquet ?? '-'}</strong>
+          </div>
+          <div>
+            <span>Log de tratamento</span>
+            <strong>{tratamentoResumo?.log ?? '-'}</strong>
+          </div>
+        </div>
+      </section>
+
+      <section className="gestor-panel">
+        <div className="gestor-panel-title">
+          <div>
+            <h2>CSVs exportados</h2>
+            <p>Arquivos gerados em `data/exports/iqs`, separados por regional de origem.</p>
+          </div>
+          <strong>{formatNumber(exportacao?.total_linhas)} linha(s)</strong>
+        </div>
+
+        <div className="gestor-table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Regional</th>
+                <th>Linhas</th>
+                <th>Arquivo</th>
+              </tr>
+            </thead>
+            <tbody>
+              {(exportacao?.arquivos ?? []).map((arquivo) => (
+                <tr key={arquivo.arquivo}>
+                  <td>{arquivo.regional}</td>
+                  <td>{formatNumber(arquivo.linhas)}</td>
+                  <td>{arquivo.arquivo}</td>
+                </tr>
+              ))}
+              {!exportacao?.arquivos?.length ? (
+                <tr>
+                  <td colSpan={3}>Nenhuma exportação executada nesta sessão.</td>
+                </tr>
+              ) : null}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    </>
   )
 }
 
@@ -318,21 +616,27 @@ export function GestorPortalApp() {
   const [filasResumo, setFilasResumo] = useState<FilaResumo | null>(null)
   const [iqsResumo, setIqsResumo] = useState<IqsResumo | null>(null)
   const [martResumo, setMartResumo] = useState<MartResumo | null>(null)
+  const [tratamentoResumo, setTratamentoResumo] = useState<TratamentoResumo | null>(null)
+  const [indicadoresResumo, setIndicadoresResumo] = useState<IndicadoresResumo | null>(null)
 
   const loadPortal = useCallback(async () => {
     setLoadState({ status: 'loading', message: 'Aguarde processamento: carregando resumos materializados...' })
     try {
-      const [filas, iqs, mart] = await Promise.allSettled([
+      const [filas, iqs, mart, tratamento, indicadores] = await Promise.allSettled([
         getPortalFilasResumo(anomes),
         getPortalIqsResumo(anomes),
         getPortalMartResumo(),
+        getPortalTratamentoResumo(anomes),
+        getPortalIndicadoresResumo(anomes),
       ])
 
       if (filas.status === 'fulfilled') setFilasResumo(filas.value)
       if (iqs.status === 'fulfilled') setIqsResumo(iqs.value)
       if (mart.status === 'fulfilled') setMartResumo(mart.value)
+      if (tratamento.status === 'fulfilled') setTratamentoResumo(tratamento.value)
+      if (indicadores.status === 'fulfilled') setIndicadoresResumo(indicadores.value)
 
-      const errors = [filas, iqs, mart].filter((result) => result.status === 'rejected').length
+      const errors = [filas, iqs, mart, tratamento, indicadores].filter((result) => result.status === 'rejected').length
       setLoadState({
         status: errors ? 'error' : 'success',
         message: errors
@@ -378,9 +682,30 @@ export function GestorPortalApp() {
         <div className={`gestor-status gestor-status--${loadState.status}`}>{loadState.message}</div>
 
         {activePage === 'dashboard' ? (
-          <DashboardPage anomes={anomes} filasResumo={filasResumo} iqsResumo={iqsResumo} martResumo={martResumo} />
+          <DashboardPage
+            anomes={anomes}
+            filasResumo={filasResumo}
+            indicadoresResumo={indicadoresResumo}
+            iqsResumo={iqsResumo}
+            martResumo={martResumo}
+          />
         ) : null}
         {activePage === 'etl' ? <EtlPage anomes={anomes} /> : null}
+        {activePage === 'produto' ? (
+          <ProdutoIqsPage
+            anomes={anomes}
+            tratamentoResumo={tratamentoResumo}
+            onRefresh={loadPortal}
+            onResumoUpdate={setTratamentoResumo}
+          />
+        ) : null}
+        {activePage === 'indicadores' ? (
+          <IndicadoresPage
+            anomes={anomes}
+            indicadoresResumo={indicadoresResumo}
+            onResumoUpdate={setIndicadoresResumo}
+          />
+        ) : null}
         {activePage === 'filas' ? <FilasPage anomes={anomes} filasResumo={filasResumo} /> : null}
         {activePage === 'iqs' ? <IqsPage iqsResumo={iqsResumo} /> : null}
         {activePage === 'governanca' ? <GovernancaPage /> : null}
