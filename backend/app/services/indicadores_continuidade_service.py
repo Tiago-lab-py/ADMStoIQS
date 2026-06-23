@@ -46,8 +46,18 @@ class IndicadoresContinuidadeService:
         mart_agregado_atual = INDICADORES_DIR / "indicadores_agregado_ATUAL.parquet"
         mart_comparativo_atual = INDICADORES_DIR / "indicadores_comparativo_ATUAL.parquet"
 
-        consumidores_regional = IQS_MART_DIR / f"mart_consumidores_regional_{anomes}.parquet"
-        consumidor_faturado = IQS_MART_DIR / f"mart_consumidor_faturado_regional_{anomes}.parquet"
+        consumidores_regional = self._primeiro_arquivo_existente(
+            [
+                IQS_MART_DIR / f"mart_consumidores_regional_{anomes}.parquet",
+                IQS_RAW_DIR / f"consumidores_regional_{anomes}.parquet",
+            ]
+        )
+        consumidor_faturado = self._primeiro_arquivo_existente(
+            [
+                IQS_MART_DIR / f"mart_consumidor_faturado_regional_{anomes}.parquet",
+                IQS_RAW_DIR / f"consumidor_faturado_regional_{anomes}.parquet",
+            ]
+        )
         uc_faturada_mart = IQS_MART_DIR / f"mart_uc_faturada_hcai_{anomes}.parquet"
         uc_faturada_raw = IQS_RAW_DIR / f"uc_faturada_hcai_{anomes}.parquet"
         fonte_denominador = "COUNT_DISTINCT_NUM_UC_UCI"
@@ -148,7 +158,7 @@ class IndicadoresContinuidadeService:
                 AND fim_uc IS NOT NULL
                 AND date_diff('minute', inicio_uc, fim_uc) >= 0 AS duracao_valida,
                 date_diff('minute', inicio_uc, fim_uc) >= 3 AS duracao_longa_liquida,
-                COALESCE(NULLIF(TRIM(tipo_protocolo_uci), ''), NULLIF(TRIM(tipo_protocolo_interrupcao), ''), '0') = '0'
+                NULLIF(TRIM(tipo_protocolo_uci), '') = '0'
                     AS protocolo_liquido
             FROM parse
             """,
@@ -268,7 +278,7 @@ class IndicadoresContinuidadeService:
             """
         )
 
-        if consumidor_faturado.exists():
+        if consumidor_faturado is not None:
             connection.execute(
                 """
                 CREATE TEMP TABLE denominador_info AS
@@ -278,7 +288,7 @@ class IndicadoresContinuidadeService:
             self._criar_denominadores_iqs(connection, consumidor_faturado)
             return
 
-        if consumidores_regional.exists():
+        if consumidores_regional is not None:
             connection.execute(
                 """
                 CREATE TEMP TABLE denominador_info AS
@@ -306,16 +316,32 @@ class IndicadoresContinuidadeService:
             row[0]
             for row in connection.execute(
                 "DESCRIBE SELECT * FROM read_parquet(?)",
-                [str(fonte)],
-            ).fetchall()
+            [str(fonte)],
+        ).fetchall()
         ]
         regional_col = self._first_existing(
             columns,
-            ["REGIONAL_ORIGEM", "SIGLA_REGIONAL", "REGIONAL", "DSC_REGIONAL", "NOME_REGIONAL"],
+            [
+                "REGIONAL_TOTAL",
+                "REGIONAL_ORIGEM",
+                "SIGLA_REGIONAL",
+                "REGIONAL",
+                "DSC_REGIONAL",
+                "NOME_REGIONAL",
+            ],
         )
         quantidade_col = self._first_existing(
             columns,
-            ["QTD_UC", "QTD_UCS", "QUANTIDADE_UCS", "CONSUMIDORES", "TOTAL", "QTDE"],
+            [
+                "UC_faturada",
+                "UC_FATURADA",
+                "QTD_UC",
+                "QTD_UCS",
+                "QUANTIDADE_UCS",
+                "CONSUMIDORES",
+                "TOTAL",
+                "QTDE",
+            ],
         )
         if not regional_col or not quantidade_col:
             connection.execute(
@@ -385,6 +411,10 @@ class IndicadoresContinuidadeService:
             WHERE duracao_valida
               AND duracao_longa_liquida
               AND protocolo_liquido
+              AND (
+                    motivo_tratamento IS NULL
+                 OR NULLIF(TRIM(motivo_tratamento), '') IS NULL
+              )
             GROUP BY
                 cenario,
                 anomes,
@@ -537,4 +567,10 @@ class IndicadoresContinuidadeService:
         for candidate in candidates:
             if candidate.upper() in normalized:
                 return normalized[candidate.upper()]
+        return None
+
+    def _primeiro_arquivo_existente(self, paths: list[Path]) -> Path | None:
+        for path in paths:
+            if path.exists():
+                return path
         return None

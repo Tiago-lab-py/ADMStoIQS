@@ -106,7 +106,7 @@ Para cálculo dos indicadores individuais e agregados, considerar a situação d
 Fonte IQS proposta:
 
 ```sql
-SELECT
+SELECT DISTINCT
     NUM_UC_HCAI AS uc,
     INDIC_FAT_HCAI AS faturado,
     CASE
@@ -132,6 +132,7 @@ Regra para numerador:
 Regra para denominador de DEC/FEC:
 
 - usar preferencialmente `IQS_COnsumidor_faturado_regional.sql`, materializado como `mart_consumidor_faturado_regional_[anomes].parquet`;
+- nessa consulta, a regional vem de `REGIONAL_TOTAL` e o divisor vem de `UC_faturada`;
 - se essa fonte não existir, usar `mart_consumidores_regional_[anomes].parquet`;
 - se nenhuma fonte IQS existir, usar fallback `COUNT(DISTINCT NUM_UC_UCI)`;
 - registrar a origem em `fonte_denominador`.
@@ -370,6 +371,18 @@ Extrair a fonte IQS de UC faturada:
 python -m backend.scripts.extrair_iqs --anomes 202605 --consulta uc_faturada_hcai
 ```
 
+Se a extração já tiver sido feita sem `DISTINCT`, compactar localmente sem consultar novamente o Oracle:
+
+```cmd
+python -m backend.scripts.compactar_uc_faturada_hcai --anomes 202605
+```
+
+Referência validada para `202605`:
+
+```text
+uc_faturada_hcai distinct esperado: aproximadamente 3.863.918 registros
+```
+
 Depois materializar os indicadores:
 
 ```cmd
@@ -394,6 +407,26 @@ http://127.0.0.1:8000/indicadores/continuidade/202605/resumo
 POST /indicadores/continuidade/{anomes}/materializar
 GET  /indicadores/continuidade/{anomes}/resumo
 GET  /indicadores/continuidade/{anomes}/comparativo
+```
+
+## Mart Derivado de Ressarcimento
+
+Após materializar os indicadores de continuidade, gerar:
+
+```cmd
+python -m backend.scripts.materializar_ressarcimento --anomes 202605
+```
+
+Saída:
+
+```text
+data/mart/indicadores/indicadores_ressarcimento_202605.parquet
+```
+
+Detalhes em:
+
+```text
+docs/32_indicadores_ressarcimento.md
 ```
 
 ## Observação Regulatória

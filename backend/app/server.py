@@ -16,6 +16,7 @@ from backend.app.api.iqs_routes import router as iqs_router
 from backend.app.api.pendencias_routes import router as pendencias_router
 from backend.app.api.routes import router as api_router
 from backend.app.services.indicadores_continuidade_service import IndicadoresContinuidadeService
+from backend.app.services.ressarcimento_service_v2 import RessarcimentoService
 from backend.app.services.sobreposicao_interrupcao_service import SobreposicaoInterrupcaoService
 from backend.app.services.tratamento_massivo_service import TratamentoMassivoService
 
@@ -523,6 +524,51 @@ def create_app() -> FastAPI:
             "total": total,
             "registros": _rows_to_dicts(columns, rows),
         }
+
+    @app.post("/indicadores/ressarcimento/{anomes}/materializar")
+    def materializar_ressarcimento(anomes: str) -> dict[str, Any]:
+        try:
+            result = RessarcimentoService().materializar(anomes)
+        except (FileNotFoundError, ValueError) as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+        return {
+            "anomes": result.anomes,
+            "origem_indicadores": str(result.origem_indicadores),
+            "origem_metas": str(result.origem_metas),
+            "origem_vrc": str(result.origem_vrc) if result.origem_vrc else None,
+            "parquet": str(result.parquet),
+            "parquet_atual": str(result.parquet_atual),
+            "total_registros": result.total_registros,
+            "total_ucs": result.total_ucs,
+            "violacoes_antes": result.violacoes_antes,
+            "violacoes_depois": result.violacoes_depois,
+            "valor_estimado_antes": result.valor_estimado_antes,
+            "valor_estimado_depois": result.valor_estimado_depois,
+            "status_formula": result.status_formula,
+            "status": "processado",
+        }
+
+    @app.get("/indicadores/ressarcimento/{anomes}/resumo")
+    def resumo_ressarcimento(anomes: str) -> dict[str, Any]:
+        return RessarcimentoService().resumo(anomes)
+
+    @app.get("/indicadores/ressarcimento/{anomes}/dados")
+    def consultar_ressarcimento(
+        anomes: str,
+        limit: int = Query(default=100, ge=1, le=1000),
+        offset: int = Query(default=0, ge=0),
+        apenas_violacao: bool = Query(default=True),
+    ) -> dict[str, Any]:
+        try:
+            return RessarcimentoService().dados(
+                anomes=anomes,
+                limit=limit,
+                offset=offset,
+                apenas_violacao=apenas_violacao,
+            )
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
 
     @app.get("/apuracao/decisoes/log")
     def consultar_decisoes_log(
