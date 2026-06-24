@@ -1,4 +1,14 @@
-import { useCallback, useEffect, useMemo, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useMemo, useState } from 'react'
+import {
+  clearAuthToken,
+  criarUsuarioAdmin,
+  listarUsuariosAdmin,
+  login,
+  me,
+  resetarSenhaUsuarioAdmin,
+  type AdminUsuario,
+  type UserResponse,
+} from './api'
 import {
   exportarPortalTratamentoCsv,
   gerarPortalTratamentoMassivo,
@@ -19,13 +29,97 @@ import {
 } from './gestorApi'
 import { FilaResumo } from './filasApi'
 import { materializarPortalPendencias } from './gestorApi'
+import { featuresEmDesenvolvimento } from './featureFlags'
 import './gestorPortal.css'
 
-type PortalPage = 'dashboard' | 'etl' | 'produto' | 'indicadores' | 'filas' | 'iqs' | 'governanca'
+type PortalPage =
+  | 'dashboard'
+  | 'etl'
+  | 'produto'
+  | 'indicadores'
+  | 'sobreposicao'
+  | 'filas'
+  | 'iqs'
+  | 'governanca'
+  | 'administracao'
 
 type LoadState = {
   status: 'idle' | 'loading' | 'success' | 'error'
   message: string
+}
+
+function LoginPage({
+  initialMessage,
+  onAuthenticated,
+}: {
+  initialMessage?: string
+  onAuthenticated: (user: UserResponse) => void
+}) {
+  const [usuario, setUsuario] = useState('admin')
+  const [senha, setSenha] = useState('')
+  const [state, setState] = useState<LoadState>({
+    status: initialMessage ? 'idle' : 'idle',
+    message: initialMessage || 'Informe usuário e senha para acessar o portal.',
+  })
+
+  const submit = async (event: FormEvent<HTMLFormElement>) => {
+    event.preventDefault()
+    setState({ status: 'loading', message: 'Aguarde: autenticando usuário...' })
+    try {
+      const response = await login({ usuario, senha })
+      onAuthenticated({
+        usuario: response.usuario,
+        nome_usuario: response.nome_usuario,
+        perfil: response.perfil,
+      })
+      setState({ status: 'success', message: 'Login efetuado com sucesso.' })
+    } catch (error) {
+      clearAuthToken()
+      setState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Falha ao autenticar.',
+      })
+    }
+  }
+
+  return (
+    <main className="gestor-login-shell">
+      <form className="gestor-login-card" onSubmit={(event) => void submit(event)}>
+        <div className="gestor-logo">AI</div>
+        <h1>ADMStoIQS</h1>
+        <p>Portal unificado governado.</p>
+
+        <label>
+          <span>Usuário</span>
+          <input
+            autoComplete="username"
+            onChange={(event) => setUsuario(event.target.value)}
+            required
+            value={usuario}
+          />
+        </label>
+
+        <label>
+          <span>Senha</span>
+          <input
+            autoComplete="current-password"
+            onChange={(event) => setSenha(event.target.value)}
+            required
+            type="password"
+            value={senha}
+          />
+        </label>
+
+        <div className={`gestor-status gestor-status--${state.status}`}>{state.message}</div>
+
+        <button className="gestor-primary" disabled={state.status === 'loading'} type="submit">
+          Entrar
+        </button>
+
+        <small>Dev: admin/admin123 · gestor/gestor123 · usuario/usuario123</small>
+      </form>
+    </main>
+  )
 }
 
 const ruleLabels: Record<string, string> = {
@@ -45,6 +139,19 @@ function statusClass(status?: string): string {
   if (status === 'erro') return 'error'
   if (status === 'pendente_raw') return 'warn'
   return 'neutral'
+}
+
+function normalizePerfil(perfil?: string): 'admin' | 'gestor' | 'analista' {
+  if (perfil === 'admin' || perfil === 'gestor') return perfil
+  return 'analista'
+}
+
+function canAccessPage(perfil: string | undefined, page: PortalPage): boolean {
+  const normalized = normalizePerfil(perfil)
+  if (normalized === 'admin') return true
+  if (page === 'etl' || page === 'administracao') return false
+  if (normalized === 'analista' && page === 'governanca') return false
+  return true
 }
 
 function Card({
@@ -70,13 +177,16 @@ function Card({
 function Sidebar({
   activePage,
   filasResumo,
+  perfil,
   onNavigate,
 }: {
   activePage: PortalPage
   filasResumo: FilaResumo | null
+  perfil: string
   onNavigate: (page: PortalPage) => void
 }) {
   const total = filasResumo?.total_pendencias ?? 0
+  const show = (page: PortalPage) => canAccessPage(perfil, page)
 
   return (
     <aside className="gestor-sidebar">
@@ -99,10 +209,12 @@ function Sidebar({
           <span>Dashboard executivo</span>
           <small>Somente leitura</small>
         </button>
-        <button className={activePage === 'etl' ? 'is-active' : ''} onClick={() => onNavigate('etl')} type="button">
-          <span>ETL operacional</span>
-          <small>CSV, UNION e apuração</small>
-        </button>
+        {show('etl') ? (
+          <button className={activePage === 'etl' ? 'is-active' : ''} onClick={() => onNavigate('etl')} type="button">
+            <span>ETL operacional</span>
+            <small>CSV, UNION e apuração</small>
+          </button>
+        ) : null}
         <button className={activePage === 'produto' ? 'is-active' : ''} onClick={() => onNavigate('produto')} type="button">
           <span>Produto IQS</span>
           <small>Tratado e CSVs finais</small>
@@ -115,14 +227,26 @@ function Sidebar({
           <span>Filas de correção</span>
           <small>Por regra materializada</small>
         </button>
+        <button className={activePage === 'sobreposicao' ? 'is-active' : ''} onClick={() => onNavigate('sobreposicao')} type="button">
+          <span>Sobreposição</span>
+          <small>Interrupção e UC</small>
+        </button>
         <button className={activePage === 'iqs' ? 'is-active' : ''} onClick={() => onNavigate('iqs')} type="button">
           <span>Fontes IQS</span>
           <small>Marts externos</small>
         </button>
-        <button className={activePage === 'governanca' ? 'is-active' : ''} onClick={() => onNavigate('governanca')} type="button">
-          <span>Governança</span>
-          <small>Trilha e decisões</small>
-        </button>
+        {show('governanca') ? (
+          <button className={activePage === 'governanca' ? 'is-active' : ''} onClick={() => onNavigate('governanca')} type="button">
+            <span>Governança</span>
+            <small>Trilha e decisões</small>
+          </button>
+        ) : null}
+        {show('administracao') ? (
+          <button className={activePage === 'administracao' ? 'is-active' : ''} onClick={() => onNavigate('administracao')} type="button">
+            <span>Administração</span>
+            <small>Usuários e perfis</small>
+          </button>
+        ) : null}
       </nav>
     </aside>
   )
@@ -379,6 +503,54 @@ function FilasPage({ anomes, filasResumo }: { anomes: string; filasResumo: FilaR
         ))}
       </div>
     </section>
+  )
+}
+
+function SobreposicaoPage({ anomes, filasResumo }: { anomes: string; filasResumo: FilaResumo | null }) {
+  const regras = useMemo(() => {
+    const porRegra = filasResumo?.por_regra ?? []
+    return Object.fromEntries(porRegra.map((item) => [item.regra, item.total]))
+  }, [filasResumo])
+
+  return (
+    <>
+      <section className="gestor-grid gestor-grid--cards">
+        <Card label="Sobreposição interrupção" value={regras.sobreposicao_interrupcao} hint="Equipamento e intervalo" accent="warning" />
+        <Card label="Sobreposição UC" value={regras.sobreposicao_uc ?? 0} hint="UC, protocolo e intervalo" accent="warning" />
+        <Card label="Horário negativo" value={regras.horario_negativo} hint="Impacta análise temporal" />
+        <Card label="Competência" value={anomes} hint="Apuração ativa" accent="success" />
+      </section>
+
+      <section className="gestor-panel">
+        <div className="gestor-panel-title">
+          <div>
+            <h2>Jornada de sobreposição</h2>
+            <p>
+              A aba consolida as duas frentes: interrupções sobrepostas por equipamento e intersecções por UC.
+              A implantação continua governada no operacional.
+            </p>
+          </div>
+          <a className="gestor-link" href="/operacional.html">
+            Abrir operacional
+          </a>
+        </div>
+
+        <div className="gestor-roadmap gestor-roadmap--two">
+          <article>
+            <strong>Fase 1 — Interrupção/equipamento</strong>
+            <span>
+              Classifica registros contidos em outra interrupção do mesmo `NUM_OPER_CHV_INTRP` e prepara motivo 91.
+            </span>
+          </article>
+          <article>
+            <strong>Fase 2 — Sobreposição UC</strong>
+            <span>
+              Ajusta intersecções por `NUM_UC_UCI`, mesmo protocolo e motivo nulo, mantendo trilha de alteração.
+            </span>
+          </article>
+        </div>
+      </section>
+    </>
   )
 }
 
@@ -694,9 +866,67 @@ function GovernancaPage() {
   )
 }
 
+function AdministracaoPage() {
+  return (
+    <section className="gestor-panel">
+      <div className="gestor-panel-title">
+        <div>
+          <h2>Administração</h2>
+          <p>Preparação da governança de acesso sem quebrar o login atual.</p>
+        </div>
+        <span className="gestor-badge gestor-badge--warn">Em desenvolvimento</span>
+      </div>
+
+      <div className="gestor-roadmap gestor-roadmap--two">
+        <article>
+          <strong>Cadastro por e-mail</strong>
+          <span>Solicitação entra pendente para aprovação do administrador.</span>
+        </article>
+        <article>
+          <strong>Perfis</strong>
+          <span>Admin, gestor e analista POS com permissões separadas.</span>
+        </article>
+        <article>
+          <strong>Primeiro acesso</strong>
+          <span>Senha inicial `inicio123`, troca obrigatória e segundo fator de 4 dígitos.</span>
+        </article>
+        <article>
+          <strong>Auditoria</strong>
+          <span>Parquet local com usuário, perfil, ação, PC/IP e trilha da alteração.</span>
+        </article>
+      </div>
+
+      <section className="gestor-panel gestor-panel--nested">
+        <h3>Módulos visíveis em desenvolvimento</h3>
+        <div className="gestor-feature-grid">
+          {featuresEmDesenvolvimento.map((feature) => (
+            <article className="gestor-feature-card" key={feature.id}>
+              <span className="gestor-badge gestor-badge--warn">Em desenvolvimento</span>
+              <strong>{feature.titulo}</strong>
+              <p>{feature.descricao}</p>
+              <small>Perfil alvo: {feature.perfilAlvo}</small>
+            </article>
+          ))}
+        </div>
+      </section>
+    </section>
+  )
+}
+
 export function GestorPortalApp() {
   const [anomes, setAnomes] = useState('202605')
   const [activePage, setActivePage] = useState<PortalPage>('dashboard')
+  const [authUser, setAuthUser] = useState<UserResponse | null>(null)
+
+  useEffect(() => {
+    if (authUser && !canAccessPage(authUser.perfil, activePage)) {
+      setActivePage('dashboard')
+    }
+  }, [activePage, authUser])
+  const [authState, setAuthState] = useState<LoadState>({
+    status: 'loading',
+    message: 'Validando sessão...',
+  })
   const [loadState, setLoadState] = useState<LoadState>({
     status: 'idle',
     message: 'Aguardando carregamento.',
@@ -707,6 +937,27 @@ export function GestorPortalApp() {
   const [tratamentoResumo, setTratamentoResumo] = useState<TratamentoResumo | null>(null)
   const [indicadoresResumo, setIndicadoresResumo] = useState<IndicadoresResumo | null>(null)
   const [ressarcimentoResumo, setRessarcimentoResumo] = useState<RessarcimentoResumo | null>(null)
+
+  useEffect(() => {
+    let mounted = true
+
+    me()
+      .then((user) => {
+        if (!mounted) return
+        setAuthUser(user)
+        setAuthState({ status: 'success', message: 'Sessão validada.' })
+      })
+      .catch(() => {
+        if (!mounted) return
+        clearAuthToken()
+        setAuthUser(null)
+        setAuthState({ status: 'idle', message: 'Faça login para acessar o portal.' })
+      })
+
+    return () => {
+      mounted = false
+    }
+  }, [])
 
   const loadPortal = useCallback(async () => {
     setLoadState({ status: 'loading', message: 'Aguarde processamento: carregando resumos materializados...' })
@@ -743,23 +994,48 @@ export function GestorPortalApp() {
   }, [anomes])
 
   useEffect(() => {
-    void loadPortal()
-  }, [loadPortal])
+    if (authUser) void loadPortal()
+  }, [authUser, loadPortal])
+
+  const logout = () => {
+    clearAuthToken()
+    localStorage.removeItem('admstoiqs_user')
+    localStorage.removeItem('user')
+    setAuthUser(null)
+    setLoadState({ status: 'idle', message: 'Sessão encerrada.' })
+  }
+
+  if (!authUser) {
+    return (
+      <LoginPage
+        initialMessage={authState.message}
+        onAuthenticated={(user) => {
+          setAuthUser(user)
+          setAuthState({ status: 'success', message: 'Sessão iniciada.' })
+        }}
+      />
+    )
+  }
 
   return (
     <div className="gestor-shell">
-      <Sidebar activePage={activePage} filasResumo={filasResumo} onNavigate={setActivePage} />
+      <Sidebar activePage={activePage} filasResumo={filasResumo} perfil={authUser.perfil} onNavigate={setActivePage} />
 
       <main className="gestor-main">
         <header className="gestor-header">
           <div>
-            <span className="gestor-pill">Versão definitiva</span>
+            <span className="gestor-pill">Versão definitiva · Portal unificado</span>
             <h1>ADMStoIQS</h1>
             <p>Middleware local para reduzir falhas entre ADMS e IQS.</p>
           </div>
           <button className="gestor-primary" onClick={() => void loadPortal()} type="button">
             Atualizar portal
           </button>
+          <div className="gestor-userbox">
+            <span>{authUser.nome_usuario}</span>
+            <strong>{authUser.perfil}</strong>
+            <button onClick={logout} type="button">Sair</button>
+          </div>
           <label className="gestor-filter">
             <span>Competência</span>
             <input
@@ -802,10 +1078,175 @@ export function GestorPortalApp() {
           />
         ) : null}
         {activePage === 'filas' ? <FilasPage anomes={anomes} filasResumo={filasResumo} /> : null}
+        {activePage === 'sobreposicao' ? <SobreposicaoPage anomes={anomes} filasResumo={filasResumo} /> : null}
         {activePage === 'iqs' ? <IqsPage iqsResumo={iqsResumo} /> : null}
         {activePage === 'governanca' ? <GovernancaPage /> : null}
+        {activePage === 'administracao' ? <AdministracaoUsuariosPage authUser={authUser} /> : null}
       </main>
     </div>
+  )
+}
+
+function AdministracaoUsuariosPage({ authUser }: { authUser: UserResponse }) {
+  const [usuarios, setUsuarios] = useState<AdminUsuario[]>([])
+  const [form, setForm] = useState({
+    email: '',
+    nome_usuario: '',
+    perfil: 'analista' as 'admin' | 'gestor' | 'analista',
+  })
+  const [state, setState] = useState<LoadState>({ status: 'idle', message: '' })
+
+  const carregarUsuarios = useCallback(async () => {
+    setState({ status: 'loading', message: 'Aguarde processamento: carregando usuários...' })
+    try {
+      const response = await listarUsuariosAdmin()
+      setUsuarios(response.usuarios)
+      setState({ status: 'success', message: 'Usuários carregados.' })
+    } catch (error) {
+      setState({ status: 'error', message: error instanceof Error ? error.message : 'Falha ao carregar usuários.' })
+    }
+  }, [])
+
+  useEffect(() => {
+    if (authUser.perfil === 'admin') {
+      void carregarUsuarios()
+    }
+  }, [authUser.perfil, carregarUsuarios])
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault()
+    setState({ status: 'loading', message: 'Aguarde processamento: cadastrando usuário...' })
+    try {
+      const response = await criarUsuarioAdmin(form)
+      setForm({ email: '', nome_usuario: '', perfil: 'analista' })
+      await carregarUsuarios()
+      setState({
+        status: 'success',
+        message: `Usuário ${response.usuario.email} cadastrado. Senha inicial: ${response.usuario.senha_inicial || 'inicio123'}`,
+      })
+    } catch (error) {
+      setState({ status: 'error', message: error instanceof Error ? error.message : 'Falha ao cadastrar usuário.' })
+    }
+  }
+
+  async function handleResetSenha(usuario: string) {
+    const confirmar = window.confirm(`Resetar a senha de ${usuario} para inicio123 e obrigar troca no próximo login?`)
+    if (!confirmar) return
+    setState({ status: 'loading', message: 'Aguarde processamento: resetando senha...' })
+    try {
+      await resetarSenhaUsuarioAdmin(usuario)
+      await carregarUsuarios()
+      setState({ status: 'success', message: `Senha de ${usuario} resetada para inicio123. Próximo login exigirá troca.` })
+    } catch (error) {
+      setState({ status: 'error', message: error instanceof Error ? error.message : 'Falha ao resetar senha.' })
+    }
+  }
+
+  if (authUser.perfil !== 'admin') {
+    return (
+      <section className="gestor-section">
+        <h1>Administração</h1>
+        <p>Seu perfil não possui permissão para administrar usuários.</p>
+      </section>
+    )
+  }
+
+  return (
+    <section className="gestor-section">
+      <div className="gestor-section-header">
+        <div>
+          <span className="gestor-pill">Administração</span>
+          <h1>Usuários e perfis</h1>
+          <p>Cadastro por e-mail com senha inicial controlada e trilha em parquet.</p>
+        </div>
+      </div>
+
+      {state.message ? <div className={`gestor-status gestor-status--${state.status}`}>{state.message}</div> : null}
+
+      <div className="gestor-admin-grid">
+        <form className="gestor-admin-form" onSubmit={handleSubmit}>
+          <label>
+            E-mail
+            <input
+              autoComplete="email"
+              required
+              type="email"
+              value={form.email}
+              onChange={(event) => setForm((current) => ({ ...current, email: event.target.value }))}
+              placeholder="usuario@empresa.com"
+            />
+          </label>
+          <label>
+            Nome
+            <input
+              autoComplete="name"
+              required
+              value={form.nome_usuario}
+              onChange={(event) => setForm((current) => ({ ...current, nome_usuario: event.target.value }))}
+              placeholder="Nome completo"
+            />
+          </label>
+          <label>
+            Perfil
+            <select
+              value={form.perfil}
+              onChange={(event) => setForm((current) => ({ ...current, perfil: event.target.value as 'admin' | 'gestor' | 'analista' }))}
+            >
+              <option value="analista">Analista</option>
+              <option value="gestor">Gestor</option>
+              <option value="admin">Admin</option>
+            </select>
+          </label>
+          <button className="gestor-primary" disabled={state.status === 'loading'} type="submit">
+            Cadastrar usuário
+          </button>
+          <small>Senha inicial: <strong>inicio123</strong>. Primeiro acesso exigirá troca e segundo fator.</small>
+        </form>
+
+        <div className="gestor-table-card">
+          <div className="gestor-card-title">
+            <span>Usuários cadastrados</span>
+            <button className="gestor-primary gestor-primary--small" type="button" onClick={() => void carregarUsuarios()}>
+              Atualizar
+            </button>
+          </div>
+          <div className="gestor-table-scroll">
+            <table className="gestor-table">
+              <thead>
+                <tr>
+                  <th>Usuário</th>
+                  <th>Nome</th>
+                  <th>Perfil</th>
+                  <th>Status</th>
+                  <th>Reset senha</th>
+                  <th>Ação</th>
+                </tr>
+              </thead>
+              <tbody>
+                {usuarios.map((usuario) => (
+                  <tr key={usuario.usuario}>
+                    <td>{usuario.email || usuario.usuario}</td>
+                    <td>{usuario.nome_usuario}</td>
+                    <td>{usuario.perfil}</td>
+                    <td>{usuario.status}</td>
+                    <td>{usuario.troca_senha_obrigatoria === 'true' ? 'Obrigatório' : 'Não'}</td>
+                    <td>
+                      <button
+                        className="gestor-primary gestor-primary--small"
+                        type="button"
+                        onClick={() => void handleResetSenha(usuario.usuario)}
+                      >
+                        Resetar senha
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    </section>
   )
 }
 

@@ -90,7 +90,7 @@ function numericArg(value: unknown, fallback: number) {
   return fallback;
 }
 
-export type PerfilUsuario = "admin" | "gestor" | "usuario";
+export type PerfilUsuario = "admin" | "gestor" | "analista" | "usuario";
 
 export interface LoginRequest {
   usuario: string;
@@ -106,6 +106,7 @@ export interface LoginResponse {
   usuario: string;
   nome_usuario: string;
   perfil: PerfilUsuario;
+  troca_senha_obrigatoria?: boolean;
 }
 
 export type AuthResponse = LoginResponse;
@@ -118,6 +119,30 @@ export interface UserResponse {
 
 export type AuthUser = UserResponse;
 export type MeResponse = UserResponse;
+
+export interface AdminUsuario {
+  usuario: string;
+  email: string;
+  nome_usuario: string;
+  perfil: PerfilUsuario;
+  status: string;
+  troca_senha_obrigatoria: string;
+  segundo_fator_obrigatorio: string;
+  criado_em: string;
+  criado_por: string;
+  senha_inicial?: string;
+}
+
+export interface AdminUsuariosResponse {
+  usuarios: AdminUsuario[];
+}
+
+export interface CriarUsuarioRequest {
+  email: string;
+  nome_usuario: string;
+  perfil: "admin" | "gestor" | "analista";
+  pc?: string;
+}
 
 export interface Competencia {
   anomes: string;
@@ -289,6 +314,34 @@ export function login(payload: LoginRequest | string, senha?: string) {
     method: "POST",
     body: JSON.stringify(body),
   }).then((response) => {
+    if (response.troca_senha_obrigatoria) {
+      clearAuthToken();
+      localStorage.removeItem("admstoiqs_user");
+      localStorage.removeItem("user");
+
+      const novaSenha = window.prompt(
+        "Senha inicial detectada. Digite uma nova senha com pelo menos 8 caracteres.",
+      );
+      if (!novaSenha) {
+        throw new ApiError("Troca de senha obrigatória antes do acesso.", 428, response);
+      }
+      const confirmarSenha = window.prompt("Confirme a nova senha.");
+      if (novaSenha !== confirmarSenha) {
+        throw new ApiError("As senhas informadas não conferem.", 428, response);
+      }
+
+      return request<{ status: string; mensagem: string }>("/auth/alterar-senha-inicial", {
+        method: "POST",
+        body: JSON.stringify({
+          usuario: body.usuario,
+          senha_atual: body.senha,
+          nova_senha: novaSenha,
+        }),
+      }).then(() => {
+        throw new ApiError("Senha alterada. Faça login novamente com a nova senha.", 428, response);
+      });
+    }
+
     setAuthToken(response.access_token);
     localStorage.setItem("admstoiqs_user", JSON.stringify(response));
     localStorage.setItem("user", JSON.stringify(response));
@@ -300,9 +353,41 @@ export function me() {
   return request<UserResponse>("/auth/me");
 }
 
+export function alterarSenhaInicial(payload: {
+  usuario: string;
+  senha_atual: string;
+  nova_senha: string;
+  pc?: string;
+}) {
+  return request<{ status: string; mensagem: string }>("/auth/alterar-senha-inicial", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
 export const getMe = me;
 export const usuarioAtual = me;
 export const currentUser = me;
+
+export function listarUsuariosAdmin() {
+  return request<AdminUsuariosResponse>("/admin/usuarios");
+}
+
+export function criarUsuarioAdmin(payload: CriarUsuarioRequest) {
+  return request<{ status: string; usuario: AdminUsuario }>("/admin/usuarios", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+}
+
+export function resetarSenhaUsuarioAdmin(usuario: string) {
+  return request<{ status: string; usuario: AdminUsuario }> (
+    `/admin/usuarios/${encodeURIComponent(usuario)}/resetar-senha`,
+    {
+      method: "POST",
+    },
+  );
+}
 
 export function competencias() {
   return request<CompetenciasResponse>("/competencias");

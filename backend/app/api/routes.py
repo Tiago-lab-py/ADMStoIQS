@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import FileResponse
@@ -8,8 +9,13 @@ from fastapi.responses import FileResponse
 from backend.app.core.auth import (
     AuthUser,
     authenticate_user,
+    change_initial_password,
     create_access_token,
+    create_user,
+    force_password_reset,
     get_current_user,
+    is_password_change_required,
+    list_users,
     request_ip,
     require_roles,
 )
@@ -312,6 +318,7 @@ def login(request: LoginRequest) -> LoginResponse:
         usuario=user.usuario,
         nome_usuario=user.nome_usuario,
         perfil=user.perfil,
+        troca_senha_obrigatoria=is_password_change_required(user.usuario),
     )
 
 
@@ -322,6 +329,72 @@ def me(user: AuthUser = Depends(get_current_user)) -> UserResponse:
         nome_usuario=user.nome_usuario,
         perfil=user.perfil,
     )
+
+
+@router.post("/auth/alterar-senha-inicial")
+def alterar_senha_inicial(
+    payload: dict[str, Any],
+    request: Request,
+) -> dict[str, str]:
+    try:
+        change_initial_password(
+            usuario=str(payload.get("usuario") or ""),
+            senha_atual=str(payload.get("senha_atual") or ""),
+            nova_senha=str(payload.get("nova_senha") or ""),
+            ip=request_ip(request),
+            pc=str(payload.get("pc") or request.headers.get("x-workstation") or ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {
+        "status": "senha_alterada",
+        "mensagem": "Senha inicial alterada. Faça login novamente com a nova senha.",
+    }
+
+
+@router.get("/admin/usuarios")
+def listar_usuarios_admin(
+    _user: AuthUser = Depends(require_roles("admin")),
+) -> dict[str, object]:
+    return {"usuarios": list_users()}
+
+
+@router.post("/admin/usuarios")
+def cadastrar_usuario_admin(
+    payload: dict[str, Any],
+    request: Request,
+    user: AuthUser = Depends(require_roles("admin")),
+) -> dict[str, object]:
+    try:
+        usuario = create_user(
+            email=str(payload.get("email") or payload.get("usuario") or ""),
+            nome_usuario=str(payload.get("nome_usuario") or payload.get("nome") or ""),
+            perfil=str(payload.get("perfil") or "analista"),
+            criado_por=user.usuario,
+            ip=request_ip(request),
+            pc=str(payload.get("pc") or request.headers.get("x-workstation") or ""),
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "criado", "usuario": usuario}
+
+
+@router.post("/admin/usuarios/{usuario}/resetar-senha")
+def resetar_senha_usuario_admin(
+    usuario: str,
+    request: Request,
+    user: AuthUser = Depends(require_roles("admin")),
+) -> dict[str, object]:
+    try:
+        reset = force_password_reset(
+            usuario=usuario,
+            responsavel=user.usuario,
+            ip=request_ip(request),
+            pc=request.headers.get("x-workstation") or "",
+        )
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return {"status": "resetado", "usuario": reset}
 
 
 @router.get("/competencias", response_model=CompetenciasResponse)

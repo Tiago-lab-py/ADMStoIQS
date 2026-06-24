@@ -21,6 +21,7 @@ class LoginResponse(BaseModel):
     usuario: str
     nome_usuario: str
     perfil: str
+    troca_senha_obrigatoria: bool = False
 
 
 class UserResponse(BaseModel):
