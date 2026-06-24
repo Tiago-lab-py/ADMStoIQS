@@ -18,6 +18,7 @@ import {
   TratamentoResumo,
 } from './gestorApi'
 import { FilaResumo } from './filasApi'
+import { materializarPortalPendencias } from './gestorApi'
 import './gestorPortal.css'
 
 type PortalPage = 'dashboard' | 'etl' | 'produto' | 'indicadores' | 'filas' | 'iqs' | 'governanca'
@@ -381,7 +382,39 @@ function FilasPage({ anomes, filasResumo }: { anomes: string; filasResumo: FilaR
   )
 }
 
-function EtlPage({ anomes }: { anomes: string }) {
+function EtlPage({
+  anomes,
+  onFilasResumoUpdate,
+}: {
+  anomes: string
+  onFilasResumoUpdate: (resumo: FilaResumo) => void
+}) {
+  const [pendenciasState, setPendenciasState] = useState<LoadState>({
+    status: 'idle',
+    message: 'Aguardando materialização das pendências.',
+  })
+
+  const materializarPendencias = async () => {
+    setPendenciasState({
+      status: 'loading',
+      message: 'Aguarde processamento: materializando pendências da apuração...',
+    })
+    try {
+      const result = await materializarPortalPendencias(anomes)
+      const resumo = await getPortalFilasResumo(anomes)
+      onFilasResumoUpdate(resumo)
+      setPendenciasState({
+        status: 'success',
+        message: `Processamento concluído: ${formatNumber(result.total_pendencias)} pendência(s) materializada(s).`,
+      })
+    } catch (error) {
+      setPendenciasState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Falha ao materializar pendências.',
+      })
+    }
+  }
+
   return (
     <section className="gestor-panel">
       <div className="gestor-panel-title">
@@ -414,6 +447,22 @@ function EtlPage({ anomes }: { anomes: string }) {
           <span>Materializa filas para análise governada.</span>
         </article>
       </div>
+
+      <section className="gestor-panel gestor-panel--nested">
+        <div className="gestor-panel-title">
+          <div>
+            <h2>Janela 4 — Materializar pendências</h2>
+            <p>
+              Gera `pendencias_APURACAO_{anomes}.parquet` e atualiza
+              `pendencias_APURACAO_ATUAL.parquet` para as filas de correção.
+            </p>
+          </div>
+          <button className="gestor-primary" onClick={() => void materializarPendencias()} type="button">
+            Materializar pendências
+          </button>
+        </div>
+        <div className={`gestor-status gestor-status--${pendenciasState.status}`}>{pendenciasState.message}</div>
+      </section>
 
       <div className="gestor-kpis gestor-kpis--single">
         <div>
@@ -732,7 +781,9 @@ export function GestorPortalApp() {
             martResumo={martResumo}
           />
         ) : null}
-        {activePage === 'etl' ? <EtlPage anomes={anomes} /> : null}
+        {activePage === 'etl' ? (
+          <EtlPage anomes={anomes} onFilasResumoUpdate={setFilasResumo} />
+        ) : null}
         {activePage === 'produto' ? (
           <ProdutoIqsPage
             anomes={anomes}
