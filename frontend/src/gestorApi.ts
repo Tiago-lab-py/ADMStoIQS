@@ -1,4 +1,5 @@
 import { FilaResumo } from './filasApi'
+import { getAuthToken } from './api'
 
 export type IqsResumoItem = {
   anomes: string
@@ -134,10 +135,103 @@ export type PendenciasMaterializacao = {
   sem_causa_componente: number
 }
 
+export type OrquestradorEtapa = {
+  etapa: string
+  status: string
+  mensagem: string
+  iniciado_em: string
+  finalizado_em?: string | null
+  detalhes?: Record<string, unknown>
+}
+
+export type OrquestradorApuracaoRequest = {
+  anomes: string
+  processar_csv?: boolean
+  atualizar_union?: boolean
+  gerar_apuracao?: boolean
+  materializar_pendencias?: boolean
+  materializar_sobreposicao_interrupcao?: boolean
+  gerar_tratado?: boolean
+  materializar_indicadores?: boolean
+  materializar_ressarcimento?: boolean
+  remover_canceladas?: boolean
+}
+
+export type OrquestradorApuracaoResponse = {
+  anomes: string
+  status: string
+  usuario: string
+  perfil: string
+  iniciado_em: string
+  finalizado_em: string
+  etapas: OrquestradorEtapa[]
+}
+
+export type EstadoArquivo = {
+  arquivo: string | null
+  caminho: string
+  existe: boolean
+  tamanho_bytes: number
+  modificado_em: string | null
+}
+
+export type OrquestradorEtapa = {
+  ordem: number
+  etapa: string
+  status: string
+  mensagem?: string
+}
+
+export type OrquestradorJob = {
+  job_id: string
+  anomes: string
+  tipo: string
+  status: 'aguardando' | 'processando' | 'concluido' | 'erro' | string
+  mensagem: string
+  usuario?: string
+  perfil?: string
+  etapa_atual?: string
+  etapas: OrquestradorEtapa[]
+  criado_em?: string
+  iniciado_em?: string | null
+  finalizado_em?: string | null
+  erro?: string
+}
+
+export type EstadoDados = {
+  anomes: string
+  ultimo_csv_processado: EstadoArquivo
+  log_leitura_csv: EstadoArquivo
+  log_oms_union: EstadoArquivo
+  log_orquestrador: EstadoArquivo
+  oms_union: EstadoArquivo
+  apuracao_atual: EstadoArquivo
+  apuracao_resumo: EstadoArquivo
+  tratado_atual: EstadoArquivo
+  indicadores_atualizados: EstadoArquivo
+  ressarcimento_atualizado: EstadoArquivo
+  ultimo_export_iqs: EstadoArquivo
+  ultima_execucao_orquestrador?: Record<string, unknown> | null
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${API_BASE_URL}${path}`, init)
+  const headers = new Headers(init?.headers)
+  headers.set('Accept', 'application/json')
+  if (init?.body && !headers.has('Content-Type')) {
+    headers.set('Content-Type', 'application/json')
+  }
+
+  const token = getAuthToken()
+  if (token) {
+    headers.set('Authorization', `Bearer ${token}`)
+  }
+
+  const response = await fetch(`${API_BASE_URL}${path}`, {
+    ...init,
+    headers,
+  })
   const text = await response.text()
   let payload: unknown = {}
 
@@ -205,6 +299,18 @@ export function materializarPortalPendencias(anomes: string): Promise<Pendencias
   })
 }
 
+export function executarOrquestradorApuracao(
+  payload: OrquestradorApuracaoRequest,
+): Promise<OrquestradorApuracaoResponse> {
+  return requestJson<OrquestradorApuracaoResponse>('/etl/orquestrar-apuracao', {
+    method: 'POST',
+    body: JSON.stringify(payload),
+    headers: {
+      'Content-Type': 'application/json',
+    },
+  })
+}
+
 export function getPortalRessarcimentoResumo(anomes: string): Promise<RessarcimentoResumo> {
   return requestJson<RessarcimentoResumo>(`/indicadores/ressarcimento/${encodeURIComponent(anomes)}/resumo`)
 }
@@ -213,4 +319,25 @@ export function materializarPortalRessarcimento(anomes: string): Promise<Ressarc
   return requestJson<RessarcimentoResumo>(`/indicadores/ressarcimento/${encodeURIComponent(anomes)}/materializar`, {
     method: 'POST',
   })
+}
+
+export function getEstadoDados(anomes: string): Promise<EstadoDados> {
+  return requestJson<EstadoDados>(`/etl/estado-dados?anomes=${encodeURIComponent(anomes)}`)
+}
+
+export function iniciarOrquestradorApuracao(payload: {
+  anomes: string
+  usuario?: string
+  perfil?: string
+  pc?: string
+}): Promise<OrquestradorJob> {
+  return requestJson<OrquestradorJob>('/etl/orquestrar-apuracao/jobs', {
+    body: JSON.stringify(payload),
+    headers: { 'Content-Type': 'application/json' },
+    method: 'POST',
+  })
+}
+
+export function getOrquestradorJob(jobId: string): Promise<OrquestradorJob> {
+  return requestJson<OrquestradorJob>(`/jobs/${encodeURIComponent(jobId)}`)
 }

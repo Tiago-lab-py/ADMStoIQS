@@ -142,6 +142,7 @@ class IndicadoresContinuidadeService:
                     CAST(NUM_UC_UCI AS VARCHAR) AS num_uc_uci,
                     CAST(NUM_SEQ_INTRP AS VARCHAR) AS num_seq_intrp,
                     CAST(NUM_INTRP_UCI AS VARCHAR) AS num_intrp_uci,
+                    CAST(NUM_INTRP_INIC_MANOBRA_UCI AS VARCHAR) AS num_intrp_inic_manobra_uci,
                     COALESCE(
                         try_strptime(NULLIF(DTHR_INICIO_INTRP_UC, ''), '%Y-%m-%d %H:%M:%S'),
                         try_strptime(NULLIF(DTHR_INICIO_INTRP_UC, ''), '%d/%m/%Y %H:%M:%S'),
@@ -409,12 +410,17 @@ class IndicadoresContinuidadeService:
                 num_posto_uci,
                 num_uc_uci,
                 SUM(duracao_minutos_uc) / 60.0 AS dic_horas,
-                COUNT(DISTINCT num_seq_intrp) AS fic,
+                COUNT(DISTINCT CASE
+                    WHEN num_intrp_inic_manobra_uci IS NULL
+                      OR NULLIF(TRIM(num_intrp_inic_manobra_uci), '') IS NULL
+                    THEN num_seq_intrp
+                    ELSE NULL
+                END) AS fic,
                 MAX(duracao_minutos_uc) / 60.0 AS dmic_horas,
                 COUNT(DISTINCT num_seq_intrp) AS interrupcoes_distintas,
                 (SELECT fonte_denominador FROM denominador_info) AS fonte_denominador,
                 MAX(filtro_faturamento) AS filtro_faturamento,
-                'ESTADO_4_DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_MOTIVO_NULO_FATURADA' AS regra_liquido,
+                'ESTADO_4_DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_MOTIVO_NULO_FATURADA_FIC_SEM_MANOBRA_INICIAL' AS regra_liquido,
                 ? AS gerado_em
             FROM base_indicadores
             WHERE duracao_valida

@@ -30,6 +30,175 @@ body {
   font-family: Inter, Segoe UI, Arial, sans-serif;
 }
 
+.gestor-header {
+  position: sticky;
+  top: 0;
+  z-index: 20;
+  padding: 12px 0 18px;
+  backdrop-filter: blur(16px);
+}
+
+.gestor-auto-card {
+  border: 1px solid rgba(52, 211, 153, 0.38);
+  border-radius: 18px;
+  padding: 14px 16px;
+  margin: 14px 0;
+  background:
+    linear-gradient(135deg, rgba(16, 185, 129, 0.18), rgba(15, 23, 42, 0.82)),
+    rgba(6, 16, 25, 0.86);
+  box-shadow: 0 0 26px rgba(52, 211, 153, 0.08);
+}
+
+.gestor-auto-card span,
+.gestor-file-card span,
+.gestor-job-step span {
+  display: block;
+  color: var(--gestor-muted);
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.gestor-auto-card strong {
+  display: block;
+  margin-top: 6px;
+  color: #6fffd0;
+  font-size: 18px;
+}
+
+.gestor-auto-card small {
+  display: block;
+  margin-top: 4px;
+  color: var(--gestor-muted);
+}
+
+.gestor-cockpit-panel {
+  display: grid;
+  gap: 18px;
+}
+
+.gestor-file-grid,
+.gestor-job-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+  gap: 12px;
+}
+
+.gestor-file-card,
+.gestor-job-step {
+  border: 1px solid var(--gestor-line-soft);
+  border-radius: 16px;
+  background: rgba(15, 23, 42, 0.62);
+  padding: 14px;
+  min-width: 0;
+}
+
+.gestor-file-card strong,
+.gestor-job-step strong {
+  display: block;
+  margin: 8px 0 6px;
+  overflow: hidden;
+  color: var(--gestor-text);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gestor-file-card small,
+.gestor-job-step small,
+.gestor-job-step em {
+  display: block;
+  color: var(--gestor-muted);
+  font-size: 12px;
+}
+
+.gestor-file-card code {
+  display: block;
+  margin-top: 8px;
+  padding: 8px;
+  overflow: hidden;
+  border: 1px solid var(--gestor-line-soft);
+  border-radius: 10px;
+  background: rgba(3, 7, 18, 0.72);
+  color: #c7d2fe;
+  font-size: 11px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.gestor-file-meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 10px;
+}
+
+.gestor-copy {
+  border: 1px solid rgba(34, 199, 247, 0.35);
+  border-radius: 999px;
+  background: rgba(34, 199, 247, 0.12);
+  color: #bae6fd;
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 900;
+  padding: 6px 10px;
+}
+
+.gestor-job-step {
+  position: relative;
+}
+
+.gestor-job-step > span:first-child {
+  color: var(--gestor-cyan);
+}
+
+.gestor-job-step em {
+  margin-top: 8px;
+  font-style: normal;
+}
+
+.gestor-grid--criticity .gestor-card strong {
+  text-align: right;
+}
+
+.gestor-badge {
+  display: inline-flex;
+  width: fit-content;
+  align-items: center;
+  border-radius: 999px;
+  padding: 4px 9px;
+  font-size: 11px;
+  font-weight: 900;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.gestor-badge--ok {
+  border: 1px solid rgba(52, 211, 153, 0.48);
+  background: rgba(52, 211, 153, 0.12);
+  color: #86efac;
+}
+
+.gestor-badge--warn {
+  border: 1px solid rgba(251, 191, 36, 0.48);
+  background: rgba(251, 191, 36, 0.12);
+  color: #fde68a;
+}
+
+.gestor-badge--error {
+  border: 1px solid rgba(251, 113, 133, 0.55);
+  background: rgba(251, 113, 133, 0.13);
+  color: #fecdd3;
+}
+
+.gestor-badge--neutral {
+  border: 1px solid rgba(148, 163, 184, 0.32);
+  background: rgba(148, 163, 184, 0.1);
+  color: #cbd5e1;
+}
+
 button,
 input,
 textarea,

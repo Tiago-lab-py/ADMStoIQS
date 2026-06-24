@@ -1,13 +1,18 @@
 from __future__ import annotations
 
 from datetime import datetime
+import subprocess
+import sys
+import threading
+import traceback
 from uuid import uuid4
 
-from fastapi import Body, FastAPI
+from fastapi import Body, Depends, FastAPI
 from pathlib import Path
 from typing import Any
 
 import duckdb
+import pandas as pd
 from fastapi import HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
@@ -16,7 +21,9 @@ from backend.app.api.filas_routes import router as filas_router
 from backend.app.api.iqs_routes import router as iqs_router
 from backend.app.api.pendencias_routes import router as pendencias_router
 from backend.app.api.routes import router as api_router
+from backend.app.core.auth import AuthUser, require_roles
 from backend.app.services.indicadores_continuidade_service import IndicadoresContinuidadeService
+from backend.app.services.orquestrador_apuracao_service import OrquestradorApuracaoService
 from backend.app.services.ressarcimento_service_v2 import RessarcimentoService
 from backend.app.services.sobreposicao_interrupcao_service import SobreposicaoInterrupcaoService
 from backend.app.services.sobreposicao_uc_service import SobreposicaoUcService
@@ -29,6 +36,14 @@ APURACAO_DIR = PROJECT_ROOT / "data" / "mart" / "apuracao"
 PENDENCIAS_ATUAL = APURACAO_DIR / "pendencias_APURACAO_ATUAL.parquet"
 LOGS_DIR = PROJECT_ROOT / "data" / "logs"
 DECISOES_ATUAL = LOGS_DIR / "decisoes_pendencias_ATUAL.parquet"
+MART_DIR = PROJECT_ROOT / "data" / "mart"
+PROCESSED_DIR = PROJECT_ROOT / "data" / "processed"
+INDICADORES_DIR = MART_DIR / "indicadores"
+EXPORTS_IQS_DIR = PROJECT_ROOT / "data" / "exports" / "iqs"
+LOG_ORQUESTRADOR = LOGS_DIR / "log_orquestrador_apuracao.parquet"
+
+JOBS: dict[str, dict[str, Any]] = {}
+JOBS_LOCK = threading.Lock()
 
 
 class DecisaoGovernadaPayload(BaseModel):
@@ -83,6 +98,188 @@ def _first_existing(columns: list[str], candidates: list[str], default_sql: str)
     return default_sql
 
 
+def _file_info(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {
+            "arquivo": path.name,
+            "caminho": str(path),
+            "existe": False,
+            "tamanho_bytes": 0,
+            "modificado_em": None,
+        }
+
+    stat = path.stat()
+    return {
+        "arquivo": path.name,
+        "caminho": str(path),
+        "existe": True,
+        "tamanho_bytes": stat.st_size,
+        "modificado_em": datetime.fromtimestamp(stat.st_mtime).isoformat(timespec="seconds"),
+    }
+
+
+def _latest_file(directory: Path, pattern: str) -> dict[str, Any]:
+    files = sorted(directory.glob(pattern), key=lambda item: item.stat().st_mtime if item.exists() else 0)
+    if not files:
+        return {
+            "arquivo": None,
+            "caminho": str(directory / pattern),
+            "existe": False,
+            "tamanho_bytes": 0,
+            "modificado_em": None,
+        }
+    return _file_info(files[-1])
+
+
+def _append_orquestrador_log(row: dict[str, Any]) -> None:
+    LOGS_DIR.mkdir(parents=True, exist_ok=True)
+    temp_path = LOG_ORQUESTRADOR.with_suffix(".tmp.parquet")
+    incoming = pd.DataFrame([row])
+
+    if LOG_ORQUESTRADOR.exists():
+        try:
+            current = pd.read_parquet(LOG_ORQUESTRADOR)
+            updated = pd.concat([current, incoming], ignore_index=True)
+        except Exception:
+            updated = incoming
+    else:
+        updated = incoming
+
+    updated.to_parquet(temp_path, index=False)
+    temp_path.replace(LOG_ORQUESTRADOR)
+
+
+def _job_snapshot(job_id: str) -> dict[str, Any]:
+    with JOBS_LOCK:
+        job = JOBS.get(job_id)
+        if not job:
+            raise HTTPException(status_code=404, detail=f"Job não encontrado: {job_id}")
+        return dict(job)
+
+
+def _update_job(job_id: str, **changes: Any) -> None:
+    with JOBS_LOCK:
+        if job_id in JOBS:
+            JOBS[job_id].update(changes)
+
+
+def _run_orquestrador_job(job_id: str, anomes: str, usuario: str, perfil: str, ip: str, pc: str) -> None:
+    iniciado_em = datetime.now().isoformat(timespec="seconds")
+    etapas: list[dict[str, Any]] = [
+        {"ordem": 1, "etapa": "CSV pendentes", "status": "aguardando"},
+        {"ordem": 2, "etapa": "OMS UNION", "status": "aguardando"},
+        {"ordem": 3, "etapa": "Apuração mensal", "status": "aguardando"},
+        {"ordem": 4, "etapa": "Pendências", "status": "aguardando"},
+        {"ordem": 5, "etapa": "Sobreposições", "status": "aguardando"},
+        {"ordem": 6, "etapa": "Base tratada", "status": "aguardando"},
+        {"ordem": 7, "etapa": "Indicadores", "status": "aguardando"},
+        {"ordem": 8, "etapa": "Ressarcimento", "status": "aguardando"},
+    ]
+    _update_job(
+        job_id,
+        status="processando",
+        mensagem="Trilha ADMStoIQS em execução no backend.",
+        etapas=etapas,
+        iniciado_em=iniciado_em,
+    )
+
+    def mark(index: int, status: str, mensagem: str = "") -> None:
+        etapas[index]["status"] = status
+        if mensagem:
+            etapas[index]["mensagem"] = mensagem
+        _update_job(job_id, etapas=[dict(etapa) for etapa in etapas], etapa_atual=etapas[index]["etapa"])
+
+    try:
+        try:
+            from backend.app.services.orquestrador_apuracao_service import OrquestradorApuracaoService
+
+            mark(0, "processando", "Orquestrador Python iniciado.")
+            try:
+                result = OrquestradorApuracaoService().executar(
+                    anomes=anomes,
+                    usuario=usuario,
+                    perfil=perfil,
+                )
+            except TypeError:
+                result = OrquestradorApuracaoService().executar(anomes=anomes)
+            for index in range(len(etapas)):
+                if etapas[index]["status"] == "aguardando":
+                    etapas[index]["status"] = "processado"
+            mensagem_final = "Trilha concluída com sucesso."
+        except ModuleNotFoundError:
+            mark(0, "processando", "Executando script por subprocesso.")
+            completed = subprocess.run(
+                [sys.executable, "-m", "backend.scripts.orquestrar_apuracao", "--anomes", anomes],
+                cwd=str(PROJECT_ROOT),
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            result = {
+                "returncode": completed.returncode,
+                "stdout_tail": completed.stdout[-8000:],
+                "stderr_tail": completed.stderr[-8000:],
+            }
+            if completed.returncode != 0:
+                raise RuntimeError(completed.stderr or completed.stdout or "Falha no subprocesso do orquestrador.")
+            for index in range(len(etapas)):
+                etapas[index]["status"] = "processado"
+            mensagem_final = "Trilha concluída com sucesso via subprocesso."
+
+        finalizado_em = datetime.now().isoformat(timespec="seconds")
+        _update_job(
+            job_id,
+            status="concluido",
+            mensagem=mensagem_final,
+            resultado=result if isinstance(result, dict) else str(result),
+            etapas=etapas,
+            finalizado_em=finalizado_em,
+        )
+        _append_orquestrador_log(
+            {
+                "job_id": job_id,
+                "anomes": anomes,
+                "status": "concluido",
+                "usuario": usuario,
+                "perfil": perfil,
+                "ip": ip,
+                "pc": pc,
+                "mensagem": mensagem_final,
+                "iniciado_em": iniciado_em,
+                "finalizado_em": finalizado_em,
+            }
+        )
+    except Exception as error:
+        finalizado_em = datetime.now().isoformat(timespec="seconds")
+        for etapa in etapas:
+            if etapa["status"] == "processando":
+                etapa["status"] = "erro"
+                etapa["mensagem"] = str(error)
+                break
+        _update_job(
+            job_id,
+            status="erro",
+            mensagem=str(error),
+            erro=traceback.format_exc(),
+            etapas=etapas,
+            finalizado_em=finalizado_em,
+        )
+        _append_orquestrador_log(
+            {
+                "job_id": job_id,
+                "anomes": anomes,
+                "status": "erro",
+                "usuario": usuario,
+                "perfil": perfil,
+                "ip": ip,
+                "pc": pc,
+                "mensagem": str(error),
+                "iniciado_em": iniciado_em,
+                "finalizado_em": finalizado_em,
+            }
+        )
+
+
 def create_app() -> FastAPI:
     app = FastAPI(
         title="ADMStoIQS API",
@@ -95,6 +292,8 @@ def create_app() -> FastAPI:
         allow_origins=[
             "http://127.0.0.1:5173",
             "http://localhost:5173",
+            "http://127.0.0.1:5666",
+            "http://localhost:5666",
         ],
         allow_credentials=True,
         allow_methods=["*"],
@@ -104,6 +303,150 @@ def create_app() -> FastAPI:
     @app.get("/")
     def root() -> dict[str, str]:
         return {"status": "ok", "app": "ADMStoIQS API"}
+
+    @app.post("/etl/orquestrar-apuracao")
+    def orquestrar_apuracao(
+        payload: dict[str, Any] | None = Body(default=None),
+        user: AuthUser = Depends(require_roles("admin")),
+    ) -> dict[str, Any]:
+        body = payload or {}
+        anomes = str(body.get("anomes") or "202605")
+        try:
+            result = OrquestradorApuracaoService().executar(
+                anomes=anomes,
+                usuario=user.usuario,
+                perfil=user.perfil,
+                processar_csv=bool(body.get("processar_csv", True)),
+                atualizar_union=bool(body.get("atualizar_union", True)),
+                gerar_apuracao=bool(body.get("gerar_apuracao", True)),
+                materializar_pendencias=bool(body.get("materializar_pendencias", True)),
+                materializar_sobreposicao_interrupcao=bool(
+                    body.get("materializar_sobreposicao_interrupcao", True)
+                ),
+                gerar_tratado=bool(body.get("gerar_tratado", True)),
+                materializar_indicadores=bool(body.get("materializar_indicadores", True)),
+                materializar_ressarcimento=bool(body.get("materializar_ressarcimento", True)),
+                remover_canceladas=bool(body.get("remover_canceladas", True)),
+            )
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+        except ValueError as error:
+            raise HTTPException(status_code=422, detail=str(error)) from error
+
+        return result.to_dict()
+
+    @app.post("/etl/orquestrar-apuracao/jobs")
+    def iniciar_orquestrador_apuracao(
+        request: Request,
+        payload: dict[str, Any] | None = Body(default=None),
+    ) -> dict[str, Any]:
+        body = payload or {}
+        anomes = str(body.get("anomes") or "202605")
+        usuario = str(body.get("usuario") or body.get("user") or "sistema")
+        perfil = str(body.get("perfil") or body.get("profile") or "admin")
+        pc = str(body.get("pc") or body.get("host") or request.headers.get("x-workstation") or "")
+        ip = request.client.host if request.client else ""
+        job_id = str(uuid4())
+        criado_em = datetime.now().isoformat(timespec="seconds")
+        etapas = [
+            {"ordem": 1, "etapa": "CSV pendentes", "status": "aguardando"},
+            {"ordem": 2, "etapa": "OMS UNION", "status": "aguardando"},
+            {"ordem": 3, "etapa": "Apuração mensal", "status": "aguardando"},
+            {"ordem": 4, "etapa": "Pendências", "status": "aguardando"},
+            {"ordem": 5, "etapa": "Sobreposições", "status": "aguardando"},
+            {"ordem": 6, "etapa": "Base tratada", "status": "aguardando"},
+            {"ordem": 7, "etapa": "Indicadores", "status": "aguardando"},
+            {"ordem": 8, "etapa": "Ressarcimento", "status": "aguardando"},
+        ]
+
+        with JOBS_LOCK:
+            JOBS[job_id] = {
+                "job_id": job_id,
+                "anomes": anomes,
+                "tipo": "orquestrador_apuracao",
+                "status": "aguardando",
+                "mensagem": "Job criado e aguardando thread de execução.",
+                "usuario": usuario,
+                "perfil": perfil,
+                "ip": ip,
+                "pc": pc,
+                "etapas": etapas,
+                "criado_em": criado_em,
+                "iniciado_em": None,
+                "finalizado_em": None,
+            }
+
+        thread = threading.Thread(
+            target=_run_orquestrador_job,
+            args=(job_id, anomes, usuario, perfil, ip, pc),
+            daemon=True,
+        )
+        thread.start()
+
+        _append_orquestrador_log(
+            {
+                "job_id": job_id,
+                "anomes": anomes,
+                "status": "criado",
+                "usuario": usuario,
+                "perfil": perfil,
+                "ip": ip,
+                "pc": pc,
+                "mensagem": "Job de orquestração criado pelo portal.",
+                "iniciado_em": criado_em,
+                "finalizado_em": None,
+            }
+        )
+
+        return _job_snapshot(job_id)
+
+    @app.get("/jobs/{job_id}")
+    def consultar_job(job_id: str) -> dict[str, Any]:
+        return _job_snapshot(job_id)
+
+    @app.get("/etl/estado-dados")
+    def estado_dados(anomes: str = Query(default="202605")) -> dict[str, Any]:
+        apuracao = APURACAO_DIR / f"agrupamento_oms_APURACAO_{anomes}.parquet"
+        tratado = APURACAO_DIR / f"agrupamento_oms_APURACAO_{anomes}_TRATADO.parquet"
+        indicadores = INDICADORES_DIR / f"indicadores_comparativo_{anomes}.parquet"
+        ressarcimento = INDICADORES_DIR / f"indicadores_ressarcimento_{anomes}.parquet"
+        resumo_apuracao = APURACAO_DIR / f"resumo_APURACAO_{anomes}.parquet"
+
+        ultimo_job = None
+        if LOG_ORQUESTRADOR.exists():
+            try:
+                with duckdb.connect(database=":memory:") as connection:
+                    result = connection.execute(
+                        """
+                        SELECT *
+                        FROM read_parquet(?)
+                        WHERE anomes = ?
+                        ORDER BY COALESCE(finalizado_em, iniciado_em) DESC
+                        LIMIT 1
+                        """,
+                        [str(LOG_ORQUESTRADOR), anomes],
+                    )
+                    columns = [column[0] for column in result.description]
+                    rows = result.fetchall()
+                    ultimo_job = _rows_to_dicts(columns, rows)[0] if rows else None
+            except Exception as error:
+                ultimo_job = {"status": "erro_leitura_log", "mensagem": str(error)}
+
+        return {
+            "anomes": anomes,
+            "ultimo_csv_processado": _latest_file(PROCESSED_DIR, "agrupamento_oms_*.parquet"),
+            "log_leitura_csv": _file_info(LOGS_DIR / "log_leitura_csv.parquet"),
+            "log_oms_union": _file_info(LOGS_DIR / "log_oms_union.parquet"),
+            "log_orquestrador": _file_info(LOG_ORQUESTRADOR),
+            "oms_union": _file_info(MART_DIR / "agrupamento_oms_UNION.parquet"),
+            "apuracao_atual": _file_info(apuracao),
+            "apuracao_resumo": _file_info(resumo_apuracao),
+            "tratado_atual": _file_info(tratado),
+            "indicadores_atualizados": _file_info(indicadores),
+            "ressarcimento_atualizado": _file_info(ressarcimento),
+            "ultimo_export_iqs": _latest_file(EXPORTS_IQS_DIR, f"*_{anomes}_*.csv"),
+            "ultima_execucao_orquestrador": ultimo_job,
+        }
 
     @app.get("/apuracao/filas/resumo")
     def resumo_filas(anomes: str | None = Query(default=None)) -> dict[str, Any]:

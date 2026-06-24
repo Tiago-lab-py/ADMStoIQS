@@ -121,9 +121,19 @@ Etapas recomendadas:
 5. atualizar `agrupamento_oms_UNION.parquet`;
 6. gerar apuração mensal;
 7. materializar pendências;
-8. gerar tratado automático;
-9. materializar indicadores e ressarcimento;
-10. atualizar arquivos `*_ATUAL.parquet`.
+8. materializar e aplicar sobreposição de interrupção;
+9. materializar e aplicar sobreposição UC fase 1, quando houver registros elegíveis;
+10. materializar e aplicar sobreposição UC fase 2, quando houver interseção temporal elegível;
+11. gerar tratado automático;
+12. materializar indicadores e ressarcimento;
+13. atualizar arquivos `*_ATUAL.parquet`.
+
+As etapas automáticas de sobreposição devem rodar com executor sistêmico:
+
+- `usuario = SISTEMA_AI`;
+- `perfil = sistema`;
+- `origem = orquestrador_apuracao`;
+- `justificativa = tratamento sistêmico automático aprovado na regra operacional`.
 
 ### 4.2 Processamento manual pelo admin
 
@@ -148,7 +158,9 @@ Exemplos:
 
 - desconsiderar horário negativo do cálculo de indicadores;
 - desconsiderar registros sem causa/componente dos indicadores;
-- aplicar regra automática de sobreposição quando tecnicamente definida;
+- aplicar regra automática de sobreposição de interrupção;
+- aplicar regra automática de sobreposição UC fase 1;
+- aplicar regra automática de sobreposição UC fase 2;
 - gerar base tratada para cálculo e exportação.
 
 Nesses casos, o alterador deve ser registrado como:
@@ -159,6 +171,30 @@ Nesses casos, o alterador deve ser registrado como:
 - `justificativa = regra automática aplicada pelo orquestrador`.
 
 O log deve registrar a regra, a quantidade de registros afetados e os arquivos gerados, mesmo quando não houver usuário humano tomando a decisão.
+
+### 5.3 Expurgos para indicadores de continuidade
+
+Para DEC, FEC, DIC, FIC e DMIC, a base líquida deve considerar apenas registros que atendam simultaneamente:
+
+- `ESTADO_INTRP = '4'`;
+- duração válida e maior ou igual a 3 minutos;
+- `TIPO_PROTOC_JUSTIF_UCI = '0'`;
+- `NUM_MOTIVO_TRAT_DIF_UCI` nulo ou vazio;
+- UC faturada conforme HCAI/IQS;
+- UC não acessante quando a fonte externa estiver disponível.
+
+Além disso, o FIC deve contar apenas interrupções em que:
+
+- `NUM_INTRP_INIC_MANOBRA_UCI` esteja nulo ou vazio.
+
+Essa regra evita contar como nova frequência uma UC cujo início foi deslocado por manobra/sobreposição já representada por outra interrupção.
+
+Resumo prático:
+
+- **DIC**: soma duração líquida em horas.
+- **FIC**: conta interrupções líquidas distintas, mas expurga registros com `NUM_INTRP_INIC_MANOBRA_UCI` preenchido.
+- **DMIC**: maior duração líquida individual.
+- **DEC/FEC**: agregações de DIC/FIC sobre o denominador de consumidores faturados.
 
 ### 5.2 Alteração pontual governada
 
@@ -223,6 +259,18 @@ Modelo recomendado:
 - log grava proponente, autorizador e executor sistêmico.
 
 Quando o processamento for automático, o autorizador pode ser uma decisão previamente aprovada da regra, e o executor será `SISTEMA_AI`.
+
+Para sobreposição automática, a recomendação é separar a decisão em dois níveis:
+
+1. **Regra aprovada**: gestor/admin aprova a regra técnica uma vez, documentada em sprint/doc.
+2. **Execução diária**: orquestrador aplica a regra com `SISTEMA_AI`, gravando log com quantidade, CHI/horas-UC estimado, arquivos de entrada e saída.
+
+Se uma sobreposição for tratada manualmente pelo analista, volta a valer o fluxo nominal:
+
+- analista propõe;
+- gestor/admin autoriza;
+- sistema aplica;
+- log grava proponente, autorizador, executor e justificativa.
 
 ## 7. Materializações e performance
 
@@ -328,6 +376,12 @@ Executar apuração diária
 ├── atualizar UNION
 ├── gerar apuração mensal
 ├── materializar pendências
+├── materializar sobreposição interrupção
+├── implantar sobreposição interrupção com SISTEMA_AI
+├── materializar sobreposição UC fase 1
+├── implantar sobreposição UC fase 1 com SISTEMA_AI
+├── materializar sobreposição UC fase 2
+├── implantar sobreposição UC fase 2 com SISTEMA_AI
 ├── aplicar tratamento automático sistêmico
 ├── materializar indicadores
 ├── materializar ressarcimento

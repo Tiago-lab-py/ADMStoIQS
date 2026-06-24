@@ -10,7 +10,10 @@ import {
   type UserResponse,
 } from './api'
 import {
+  executarOrquestradorApuracao,
   exportarPortalTratamentoCsv,
+  getEstadoDados,
+  getOrquestradorJob,
   gerarPortalTratamentoMassivo,
   getPortalIndicadoresResumo,
   getPortalFilasResumo,
@@ -21,8 +24,11 @@ import {
   IndicadoresResumo,
   materializarPortalRessarcimento,
   materializarPortalIndicadores,
+  iniciarOrquestradorApuracao,
+  EstadoDados,
   IqsResumo,
   MartResumo,
+  OrquestradorJob,
   RessarcimentoResumo,
   TratamentoExportacao,
   TratamentoResumo,
@@ -135,10 +141,30 @@ function formatNumber(value: unknown): string {
 }
 
 function statusClass(status?: string): string {
-  if (status === 'processado') return 'ok'
+  if (status === 'processado' || status === 'concluido') return 'ok'
   if (status === 'erro') return 'error'
-  if (status === 'pendente_raw') return 'warn'
+  if (status === 'pendente_raw' || status === 'processando' || status === 'aguardando') return 'warn'
   return 'neutral'
+}
+
+function formatDateTime(value?: string | null): string {
+  if (!value) return '-'
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return value
+  return date.toLocaleString('pt-BR')
+}
+
+function formatBytes(value?: number | null): string {
+  const bytes = Number(value || 0)
+  if (!bytes) return '0 B'
+  const units = ['B', 'KB', 'MB', 'GB']
+  const index = Math.min(Math.floor(Math.log(bytes) / Math.log(1024)), units.length - 1)
+  return `${(bytes / 1024 ** index).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${units[index]}`
+}
+
+function copyText(value?: string | null): void {
+  if (!value) return
+  void navigator.clipboard?.writeText(value)
 }
 
 function normalizePerfil(perfil?: string): 'admin' | 'gestor' | 'analista' {
@@ -174,19 +200,61 @@ function Card({
   )
 }
 
+function FileStateCard({
+  label,
+  arquivo,
+}: {
+  label: string
+  arquivo?: {
+    arquivo: string | null
+    caminho: string
+    existe: boolean
+    tamanho_bytes: number
+    modificado_em: string | null
+  }
+}) {
+  return (
+    <article className="gestor-file-card">
+      <div>
+        <span>{label}</span>
+        <strong>{arquivo?.arquivo ?? 'não encontrado'}</strong>
+      </div>
+      <span className={`gestor-badge gestor-badge--${arquivo?.existe ? 'ok' : 'warn'}`}>
+        {arquivo?.existe ? 'disponível' : 'pendente'}
+      </span>
+      <small>{formatDateTime(arquivo?.modificado_em)}</small>
+      <small>{formatBytes(arquivo?.tamanho_bytes)}</small>
+      <code>{arquivo?.caminho ?? '-'}</code>
+      <button className="gestor-copy" onClick={() => copyText(arquivo?.caminho)} type="button">
+        copiar
+      </button>
+    </article>
+  )
+}
+
 function Sidebar({
   activePage,
+  estadoDados,
   filasResumo,
   perfil,
   onNavigate,
 }: {
   activePage: PortalPage
+  estadoDados: EstadoDados | null
   filasResumo: FilaResumo | null
   perfil: string
   onNavigate: (page: PortalPage) => void
 }) {
   const total = filasResumo?.total_pendencias ?? 0
   const show = (page: PortalPage) => canAccessPage(perfil, page)
+  const ultimaExecucao = estadoDados?.ultima_execucao_orquestrador
+  const ultimaExecucaoStatus = String(ultimaExecucao?.['status'] || 'sem execução')
+  const ultimaExecucaoHorario = String(
+    ultimaExecucao?.['finalizado_em']
+      || ultimaExecucao?.['iniciado_em']
+      || estadoDados?.tratado_atual?.modificado_em
+      || '',
+  )
 
   return (
     <aside className="gestor-sidebar">
@@ -197,6 +265,12 @@ function Sidebar({
           <span>Portal gestor</span>
         </div>
       </div>
+
+      <section className="gestor-auto-card">
+        <span>Correções automáticas aplicadas</span>
+        <strong>{ultimaExecucaoStatus}</strong>
+        <small>{formatDateTime(ultimaExecucaoHorario)}</small>
+      </section>
 
       <section className="gestor-focus">
         <span>FOCO DE ATUAÇÃO</span>
@@ -556,15 +630,94 @@ function SobreposicaoPage({ anomes, filasResumo }: { anomes: string; filasResumo
 
 function EtlPage({
   anomes,
+  authUser,
+  filasResumo,
+  estadoDados,
   onFilasResumoUpdate,
+  onEstadoDadosUpdate,
 }: {
   anomes: string
+  authUser: UserResponse
+  filasResumo: FilaResumo | null
+  estadoDados: EstadoDados | null
   onFilasResumoUpdate: (resumo: FilaResumo) => void
+  onEstadoDadosUpdate: (estado: EstadoDados) => void
 }) {
   const [pendenciasState, setPendenciasState] = useState<LoadState>({
     status: 'idle',
     message: 'Aguardando materialização das pendências.',
   })
+  const [jobState, setJobState] = useState<LoadState>({
+    status: 'idle',
+    message: 'Aguardando execução da atualização diária.',
+  })
+  const [job, setJob] = useState<OrquestradorJob | null>(null)
+
+  useEffect(() => {
+    if (!job?.job_id || !['aguardando', 'processando'].includes(job.status)) return
+
+    const interval = window.setInterval(() => {
+      getOrquestradorJob(job.job_id)
+        .then((updated) => {
+          setJob(updated)
+          if (updated.status === 'concluido') {
+            setJobState({
+              status: 'success',
+              message: `Processamento concluído: ${updated.mensagem || 'trilha operacional finalizada.'}`,
+            })
+            getEstadoDados(anomes).then(onEstadoDadosUpdate).catch(() => undefined)
+          }
+          if (updated.status === 'erro') {
+            setJobState({
+              status: 'error',
+              message: updated.erro || updated.mensagem || 'Falha na atualização diária.',
+            })
+          }
+        })
+        .catch((error) => {
+          setJobState({
+            status: 'error',
+            message: error instanceof Error ? error.message : 'Falha ao consultar job.',
+          })
+        })
+    }, 5000)
+
+    return () => window.clearInterval(interval)
+  }, [anomes, job?.job_id, job?.status, onEstadoDadosUpdate])
+
+  const atualizarEstadoDados = async () => {
+    const estado = await getEstadoDados(anomes)
+    onEstadoDadosUpdate(estado)
+  }
+
+  const executarTrilhaCompletaJob = async () => {
+    setJobState({
+      status: 'loading',
+      message: 'Aguarde processamento: criando job da atualização diária...',
+    })
+    try {
+      const created = await iniciarOrquestradorApuracao({
+        anomes,
+        usuario: authUser.usuario,
+        perfil: authUser.perfil,
+      })
+      setJob(created)
+      setJobState({
+        status: 'loading',
+        message: `Job ${created.job_id} criado. Você pode navegar; o cockpit continuará acompanhando.`,
+      })
+    } catch (error) {
+      setJobState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Falha ao iniciar atualização diária.',
+      })
+    }
+  }
+  const [orquestradorState, setOrquestradorState] = useState<LoadState>({
+    status: 'idle',
+    message: 'Aguardando execução da trilha operacional completa.',
+  })
+  const [orquestradorEtapas, setOrquestradorEtapas] = useState<string[]>([])
 
   const materializarPendencias = async () => {
     setPendenciasState({
@@ -575,6 +728,7 @@ function EtlPage({
       const result = await materializarPortalPendencias(anomes)
       const resumo = await getPortalFilasResumo(anomes)
       onFilasResumoUpdate(resumo)
+      await atualizarEstadoDados()
       setPendenciasState({
         status: 'success',
         message: `Processamento concluído: ${formatNumber(result.total_pendencias)} pendência(s) materializada(s).`,
@@ -587,19 +741,168 @@ function EtlPage({
     }
   }
 
+  const executarTrilhaCompleta = async () => {
+    const confirmar = window.confirm(
+      `Executar a trilha completa da competência ${anomes}? ` +
+        'Esse fluxo pode demorar e gera logs de orquestração.',
+    )
+    if (!confirmar) return
+
+    setOrquestradorEtapas([])
+    setOrquestradorState({
+      status: 'loading',
+      message: 'Aguarde processamento: executando trilha completa da apuração...',
+    })
+
+    try {
+      const result = await executarOrquestradorApuracao({
+        anomes,
+        processar_csv: true,
+        atualizar_union: true,
+        gerar_apuracao: true,
+        materializar_pendencias: true,
+        materializar_sobreposicao_interrupcao: true,
+        gerar_tratado: true,
+        materializar_indicadores: true,
+        materializar_ressarcimento: true,
+        remover_canceladas: true,
+      })
+      const resumo = await getPortalFilasResumo(anomes)
+      onFilasResumoUpdate(resumo)
+      setOrquestradorEtapas(
+        result.etapas.map((etapa, index) => `${index + 1}. ${etapa.etapa}: ${etapa.status} — ${etapa.mensagem}`),
+      )
+      setOrquestradorState({
+        status: result.status === 'processado' ? 'success' : 'error',
+        message:
+          result.status === 'processado'
+            ? 'Processamento concluído: trilha operacional executada.'
+            : 'Processamento concluído com erro: revise o log do orquestrador.',
+      })
+    } catch (error) {
+      setOrquestradorState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Falha ao executar trilha completa.',
+      })
+    }
+  }
+
+  const regras = filasResumo?.por_regra ?? {}
+  const validacaoManual = Math.max(
+    0,
+    (filasResumo?.total_pendencias ?? 0)
+      - (regras.horario_negativo ?? 0)
+      - (regras.sem_causa_componente ?? 0)
+      - (regras.sobreposicao_interrupcao ?? 0),
+  )
+
+  const etapas = job?.etapas?.length
+    ? job.etapas
+    : [
+        { ordem: 1, etapa: 'CSV pendentes', status: 'aguardando', mensagem: '' },
+        { ordem: 2, etapa: 'OMS UNION', status: 'aguardando', mensagem: '' },
+        { ordem: 3, etapa: 'Apuração mensal', status: 'aguardando', mensagem: '' },
+        { ordem: 4, etapa: 'Pendências', status: 'aguardando', mensagem: '' },
+        { ordem: 5, etapa: 'Sobreposições', status: 'aguardando', mensagem: '' },
+        { ordem: 6, etapa: 'Base tratada', status: 'aguardando', mensagem: '' },
+        { ordem: 7, etapa: 'Indicadores', status: 'aguardando', mensagem: '' },
+        { ordem: 8, etapa: 'Ressarcimento', status: 'aguardando', mensagem: '' },
+      ]
+
   return (
     <section className="gestor-panel">
       <div className="gestor-panel-title">
         <div>
-          <h2>ETL operacional</h2>
-          <p>
-            Área de preparação dos dados: verificação de CSVs, atualização do UNION e geração da apuração mensal.
-          </p>
+          <h2>Cockpit de Operação</h2>
+          <p>Atualização diária governada, com job em background e rastreabilidade dos arquivos.</p>
         </div>
-        <a className="gestor-link" href="/operacional.html">
-          Abrir ETL completo
-        </a>
+        <div className="gestor-actions">
+          <button className="gestor-primary" onClick={() => void executarTrilhaCompletaJob()} type="button">
+            Executar atualização diária
+          </button>
+          <a className="gestor-link" href="/operacional.html">
+            Abrir ETL completo
+          </a>
+        </div>
       </div>
+
+      <div className={`gestor-status gestor-status--${jobState.status}`}>{jobState.message}</div>
+
+      <section className="gestor-panel gestor-panel--nested">
+        <div className="gestor-panel-title">
+          <div>
+            <h2>Trilha completa</h2>
+            <p>O job retorna imediatamente e continua em backend; a navegação do usuário fica livre.</p>
+          </div>
+          {job ? <span className={`gestor-badge gestor-badge--${statusClass(job.status)}`}>{job.status}</span> : null}
+        </div>
+
+        <div className="gestor-job-grid">
+          {etapas.map((etapa) => (
+            <article key={`${etapa.ordem}-${etapa.etapa}`} className="gestor-job-step">
+              <span>{String(etapa.ordem).padStart(2, '0')}</span>
+              <strong>{etapa.etapa}</strong>
+              <small className={`gestor-badge gestor-badge--${statusClass(etapa.status)}`}>{etapa.status}</small>
+              {etapa.mensagem ? <em>{etapa.mensagem}</em> : null}
+            </article>
+          ))}
+        </div>
+
+        {job ? (
+          <div className="gestor-kpis gestor-kpis--single">
+            <div>
+              <span>Job ativo</span>
+              <strong>{job.job_id}</strong>
+            </div>
+            <div>
+              <span>Etapa atual</span>
+              <strong>{job.etapa_atual || '-'}</strong>
+            </div>
+            <div>
+              <span>Última atualização</span>
+              <strong>{formatDateTime(job.finalizado_em || job.iniciado_em || job.criado_em)}</strong>
+            </div>
+          </div>
+        ) : null}
+      </section>
+
+      <section className="gestor-panel gestor-panel--nested">
+        <div className="gestor-panel-title">
+          <div>
+            <h2>Foco de atuação</h2>
+            <p>Pendências separadas por criticidade operacional para priorizar a atuação.</p>
+          </div>
+        </div>
+        <div className="gestor-grid gestor-grid--cards gestor-grid--criticity">
+          <Card label="Horário" value={regras.horario_negativo ?? 0} hint="Datas negativas e fuso" accent="danger" />
+          <Card label="Causa/componente" value={regras.sem_causa_componente ?? 0} hint="Campos ausentes" accent="warning" />
+          <Card label="Sobreposição" value={regras.sobreposicao_interrupcao ?? 0} hint="Interrupção e UC" accent="danger" />
+          <Card label="Validação manual" value={validacaoManual} hint="Pendências restantes" />
+        </div>
+      </section>
+
+      <section className="gestor-panel gestor-panel--nested">
+        <div className="gestor-panel-title">
+          <div>
+            <h2>Estado dos dados</h2>
+            <p>Arquivos e logs que sustentam a operação diária do middleware.</p>
+          </div>
+          <button className="gestor-primary" onClick={() => void atualizarEstadoDados()} type="button">
+            Atualizar estado
+          </button>
+        </div>
+
+        <div className="gestor-file-grid">
+          <FileStateCard label="Último CSV processado" file={estadoDados?.ultimo_csv_processado} />
+          <FileStateCard label="Log leitura CSV" file={estadoDados?.log_leitura_csv} />
+          <FileStateCard label="Log OMS UNION" file={estadoDados?.log_oms_union} />
+          <FileStateCard label="Log orquestrador" file={estadoDados?.log_orquestrador} />
+          <FileStateCard label="Apuração atual" file={estadoDados?.apuracao_atual} />
+          <FileStateCard label="Tratado atual" file={estadoDados?.tratado_atual} />
+          <FileStateCard label="Indicadores atualizados em" file={estadoDados?.indicadores_atualizados} />
+          <FileStateCard label="Ressarcimento atualizado em" file={estadoDados?.ressarcimento_atualizado} />
+        </div>
+      </section>
 
       <div className="gestor-roadmap">
         <article>
@@ -619,6 +922,36 @@ function EtlPage({
           <span>Materializa filas para análise governada.</span>
         </article>
       </div>
+
+      <section className="gestor-panel gestor-panel--nested">
+        <div className="gestor-panel-title">
+          <div>
+            <h2>Trilha completa — implantação diária</h2>
+            <p>
+              Executa CSVs pendentes, OMS UNION, apuração mensal, pendências, sobreposição,
+              base tratada, indicadores e ressarcimento com log nominal.
+            </p>
+          </div>
+          <button
+            className="gestor-primary"
+            disabled={orquestradorState.status === 'loading'}
+            onClick={() => void executarTrilhaCompleta()}
+            type="button"
+          >
+            Executar trilha completa
+          </button>
+        </div>
+        <div className={`gestor-status gestor-status--${orquestradorState.status}`}>{orquestradorState.message}</div>
+        {orquestradorEtapas.length ? (
+          <div className="gestor-roadmap gestor-roadmap--two">
+            {orquestradorEtapas.map((etapa) => (
+              <article key={etapa}>
+                <span>{etapa}</span>
+              </article>
+            ))}
+          </div>
+        ) : null}
+      </section>
 
       <section className="gestor-panel gestor-panel--nested">
         <div className="gestor-panel-title">
@@ -937,6 +1270,7 @@ export function GestorPortalApp() {
   const [tratamentoResumo, setTratamentoResumo] = useState<TratamentoResumo | null>(null)
   const [indicadoresResumo, setIndicadoresResumo] = useState<IndicadoresResumo | null>(null)
   const [ressarcimentoResumo, setRessarcimentoResumo] = useState<RessarcimentoResumo | null>(null)
+  const [estadoDados, setEstadoDados] = useState<EstadoDados | null>(null)
 
   useEffect(() => {
     let mounted = true
@@ -962,13 +1296,14 @@ export function GestorPortalApp() {
   const loadPortal = useCallback(async () => {
     setLoadState({ status: 'loading', message: 'Aguarde processamento: carregando resumos materializados...' })
     try {
-      const [filas, iqs, mart, tratamento, indicadores, ressarcimento] = await Promise.allSettled([
+      const [filas, iqs, mart, tratamento, indicadores, ressarcimento, estado] = await Promise.allSettled([
         getPortalFilasResumo(anomes),
         getPortalIqsResumo(anomes),
         getPortalMartResumo(),
         getPortalTratamentoResumo(anomes),
         getPortalIndicadoresResumo(anomes),
         getPortalRessarcimentoResumo(anomes),
+        getEstadoDados(anomes),
       ])
 
       if (filas.status === 'fulfilled') setFilasResumo(filas.value)
@@ -977,8 +1312,11 @@ export function GestorPortalApp() {
       if (tratamento.status === 'fulfilled') setTratamentoResumo(tratamento.value)
       if (indicadores.status === 'fulfilled') setIndicadoresResumo(indicadores.value)
       if (ressarcimento.status === 'fulfilled') setRessarcimentoResumo(ressarcimento.value)
+      if (estado.status === 'fulfilled') setEstadoDados(estado.value)
 
-      const errors = [filas, iqs, mart, tratamento, indicadores, ressarcimento].filter((result) => result.status === 'rejected').length
+      const errors = [filas, iqs, mart, tratamento, indicadores, ressarcimento, estado].filter(
+        (result) => result.status === 'rejected',
+      ).length
       setLoadState({
         status: errors ? 'error' : 'success',
         message: errors
@@ -1019,7 +1357,13 @@ export function GestorPortalApp() {
 
   return (
     <div className="gestor-shell">
-      <Sidebar activePage={activePage} filasResumo={filasResumo} perfil={authUser.perfil} onNavigate={setActivePage} />
+      <Sidebar
+        activePage={activePage}
+        estadoDados={estadoDados}
+        filasResumo={filasResumo}
+        perfil={authUser.perfil}
+        onNavigate={setActivePage}
+      />
 
       <main className="gestor-main">
         <header className="gestor-header">
@@ -1058,7 +1402,14 @@ export function GestorPortalApp() {
           />
         ) : null}
         {activePage === 'etl' ? (
-          <EtlPage anomes={anomes} onFilasResumoUpdate={setFilasResumo} />
+          <EtlPage
+            anomes={anomes}
+            authUser={authUser}
+            filasResumo={filasResumo}
+            estadoDados={estadoDados}
+            onEstadoDadosUpdate={setEstadoDados}
+            onFilasResumoUpdate={setFilasResumo}
+          />
         ) : null}
         {activePage === 'produto' ? (
           <ProdutoIqsPage

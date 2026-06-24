@@ -467,3 +467,22 @@ Critérios aplicados:
 - `TIPO_PROTOC_JUSTIF_UCI = '0'`;
 - `NUM_MOTIVO_TRAT_DIF_UCI` nulo ou vazio;
 - UC faturada conforme `uc_faturada_hcai_[anomes].parquet`.
+## Atualização — Expurgo FIC por manobra inicial
+
+Para o cálculo líquido dos indicadores, a regra operacional passa a ser:
+
+- `ESTADO_4_DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_MOTIVO_NULO_FATURADA_FIC_SEM_MANOBRA_INICIAL`
+
+Critérios gerais para DIC, FIC e DMIC:
+
+- `ESTADO_INTRP = '4'`;
+- duração válida e maior ou igual a 3 minutos;
+- `TIPO_PROTOC_JUSTIF_UCI = '0'`;
+- `NUM_MOTIVO_TRAT_DIF_UCI` nulo ou vazio;
+- UC faturada conforme base IQS/HCAI.
+
+Critério adicional apenas para FIC/FEC:
+
+- contar `NUM_SEQ_INTRP` somente quando `NUM_INTRP_INIC_MANOBRA_UCI` estiver nulo ou vazio.
+
+Esse expurgo evita contar como nova frequência uma interrupção cujo início foi deslocado por manobra ou sobreposição já representada em outra interrupção. A duração continua elegível para DIC/DEC/DMIC se o registro atender aos demais critérios líquidos.
