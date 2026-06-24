@@ -3,7 +3,7 @@ from __future__ import annotations
 from datetime import datetime
 from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import Body, FastAPI
 from pathlib import Path
 from typing import Any
 

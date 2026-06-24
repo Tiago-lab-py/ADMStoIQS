@@ -75,3 +75,51 @@ python -m backend.scripts.gerar_apuracao_tratada --anomes 202605
 python -m backend.scripts.materializar_indicadores_continuidade --anomes 202605
 python -m backend.scripts.materializar_ressarcimento --anomes 202605
 ```
+# Procedimento revisado
+
+## Separação obrigatória das etapas
+
+A sobreposição UC deve ser tratada em duas etapas independentes:
+
+1. **Materializar análise**
+   - Lê `agrupamento_oms_APURACAO_[anomes].parquet`.
+   - Gera `analise_sobreposicao_uc_APURACAO_[anomes].parquet`.
+   - Não altera a apuração.
+   - Não altera a base tratada.
+   - Não recalcula indicadores.
+
+2. **Implantar decisão**
+   - Só deve alterar dados quando a análise tiver `registros_classificar_91 > 0`.
+   - Popula `NUM_MOTIVO_TRAT_DIF_UCI = 91` nos registros classificados.
+   - Atualiza `agrupamento_oms_APURACAO_[anomes].parquet`.
+   - Gera backup antes da alteração.
+   - Registra log nominal de implantação.
+   - Recalcula pendências, tratamento massivo, indicadores e ressarcimento.
+
+## Saída rápida quando não houver registros
+
+Se a materialização retornar:
+
+```text
+Registros a classificar 91: 0
+```
+
+a implantação deve encerrar sem:
+
+- gerar backup desnecessário;
+- reescrever a apuração;
+- recalcular tratamento massivo;
+- recalcular indicadores;
+- recalcular ressarcimento.
+
+Esse comportamento evita processamento pesado sem efeito prático.
+
+## Sequência recomendada
+
+```bat
+python -m backend.scripts.materializar_sobreposicao_uc --anomes 202605
+python -m backend.scripts.implantar_sobreposicao_uc --anomes 202605 --usuario admin --perfil admin
+```
+
+Se a implantação atualizar registros, então o recálculo já é executado automaticamente.
+Se a implantação retornar `sem_registros_classificar_91`, seguir para a próxima análise sem repetir o tratamento.

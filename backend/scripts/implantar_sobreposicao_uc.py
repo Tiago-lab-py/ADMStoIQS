@@ -32,6 +32,14 @@ def main() -> None:
         pc="terminal",
         recalcular=not args.sem_recalculo,
     )
+    if result.sem_alteracoes:
+        print("[Sobreposição UC] Nenhum registro para implantar. Apuração, tratado e indicadores não foram recalculados.")
+        print(f"Anomes: {result.anomes}")
+        print(f"Análise: {result.analise}")
+        print(f"Registros atualizados: {result.registros_atualizados}")
+        print(f"Recálculos: {result.recalculos}")
+        return
+
     print("[Sobreposição UC] Implantação concluída.")
     print(f"Anomes: {result.anomes}")
     print(f"Origem atualizada: {result.origem}")
@@ -46,4 +54,3 @@ def main() -> None:
 
 if __name__ == "__main__":
     main()
-

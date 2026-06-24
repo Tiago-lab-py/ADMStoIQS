@@ -59,6 +59,7 @@ class SobreposicaoUcImplantacaoResult:
     interrupcoes_afetadas: int
     chi_reduzido_estimado: float
     recalculos: dict[str, Any]
+    sem_alteracoes: bool = False
 
 
 class SobreposicaoUcService:
@@ -152,8 +153,6 @@ class SobreposicaoUcService:
         log_atual = LOGS_DIR / "log_implantacao_sobreposicao_uc_ATUAL.parquet"
         implantado_em = datetime.now().isoformat(timespec="seconds")
 
-        shutil.copy2(origem, backup)
-
         with duckdb.connect(database=":memory:") as connection:
             connection.execute(
                 """
@@ -164,6 +163,29 @@ class SobreposicaoUcService:
                 """,
                 [str(analise)],
             )
+            resumo = self._resumo_from_path(connection, analise)
+            registros_atualizados = int(
+                connection.execute("SELECT COUNT(*) FROM chaves_uc91").fetchone()[0] or 0
+            )
+
+            if registros_atualizados == 0:
+                return SobreposicaoUcImplantacaoResult(
+                    anomes=anomes,
+                    origem=origem,
+                    backup=backup,
+                    analise=analise,
+                    log=log,
+                    log_atual=log_atual,
+                    registros_atualizados=0,
+                    ucs_afetadas=int(resumo["ucs_afetadas"]),
+                    interrupcoes_afetadas=int(resumo["interrupcoes_afetadas"]),
+                    chi_reduzido_estimado=float(resumo["chi_reduzido_estimado"]),
+                    recalculos={"status": "nao_executado", "motivo": "sem_registros_classificar_91"},
+                    sem_alteracoes=True,
+                )
+
+            shutil.copy2(origem, backup)
+
             connection.execute(
                 """
                 CREATE OR REPLACE TEMP TABLE apuracao_uc91 AS
@@ -189,10 +211,6 @@ class SobreposicaoUcService:
             )
             temp.replace(origem)
             self._copy_parquet(connection, origem, atual)
-            resumo = self._resumo_from_path(connection, analise)
-            registros_atualizados = int(
-                connection.execute("SELECT COUNT(*) FROM chaves_uc91").fetchone()[0] or 0
-            )
             self._gravar_log_implantacao(
                 connection=connection,
                 analise=analise,

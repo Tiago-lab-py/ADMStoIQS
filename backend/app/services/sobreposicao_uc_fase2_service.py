@@ -44,6 +44,7 @@ class ImplantacaoSobreposicaoUcFase2Result:
     interrupcoes_ajustadas: int
     minutos_interseccao: float
     recalculos: dict[str, str]
+    sem_alteracoes: bool = False
 
 
 class SobreposicaoUcFase2Service:
@@ -71,7 +72,7 @@ class SobreposicaoUcFase2Service:
         with duckdb.connect(database=":memory:") as connection:
             connection.execute(
                 """
-                COPY (
+                CREATE OR REPLACE TEMP TABLE analise_sobreposicao_uc_fase2 AS
                     WITH base AS (
                         SELECT
                             *,
@@ -170,9 +171,12 @@ class SobreposicaoUcFase2Service:
                     FROM pares
                     WHERE rn = 1
                       AND minutos_interseccao > 0
-                ) TO ? (FORMAT PARQUET)
                 """,
-                [str(origem), str(destino)],
+                [str(origem)],
+            )
+            connection.execute(
+                "COPY analise_sobreposicao_uc_fase2 TO ? (FORMAT PARQUET)",
+                [str(destino)],
             )
 
             self._copy_parquet(destino, destino_atual)
@@ -184,9 +188,8 @@ class SobreposicaoUcFase2Service:
                     COUNT(DISTINCT num_uc_uci) AS ucs_afetadas,
                     COUNT(DISTINCT num_seq_intrp_alvo) AS interrupcoes_ajustadas,
                     COALESCE(SUM(minutos_interseccao), 0) AS minutos_interseccao
-                FROM read_parquet(?)
+                FROM analise_sobreposicao_uc_fase2
                 """,
-                [str(destino)],
             ).fetchone()
 
         return SobreposicaoUcFase2Result(
@@ -256,9 +259,6 @@ class SobreposicaoUcFase2Service:
 
         timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
         backup = APURACAO_DIR / "backups" / f"agrupamento_oms_APURACAO_{anomes}_antes_sobreposicao_uc_fase2_{timestamp}.parquet"
-        backup.parent.mkdir(parents=True, exist_ok=True)
-        shutil.copy2(origem, backup)
-
         temp = origem.with_suffix(".sobreposicao_uc_fase2.tmp.parquet")
         log = LOG_DIR / f"log_implantacao_sobreposicao_uc_fase2_{anomes}.parquet"
         log_atual = LOG_DIR / "log_implantacao_sobreposicao_uc_fase2_ATUAL.parquet"
@@ -290,6 +290,26 @@ class SobreposicaoUcFase2Service:
                 """,
                 [str(analise)],
             ).fetchone()
+            registros_atualizados = int(metrics[0] or 0)
+
+            if registros_atualizados == 0:
+                return ImplantacaoSobreposicaoUcFase2Result(
+                    anomes=anomes,
+                    origem=str(origem),
+                    backup=str(backup),
+                    analise=str(analise),
+                    log=str(log),
+                    log_atual=str(log_atual),
+                    registros_atualizados=0,
+                    ucs_afetadas=int(metrics[1] or 0),
+                    interrupcoes_ajustadas=int(metrics[2] or 0),
+                    minutos_interseccao=float(metrics[3] or 0),
+                    recalculos={"status": "nao_executado", "motivo": "sem_ajustes_pendentes"},
+                    sem_alteracoes=True,
+                )
+
+            backup.parent.mkdir(parents=True, exist_ok=True)
+            shutil.copy2(origem, backup)
 
             connection.execute(
                 """
@@ -320,36 +340,35 @@ class SobreposicaoUcFase2Service:
 
             connection.execute(
                 """
-                COPY (
-                    SELECT
-                        ? AS anomes,
-                        regra,
-                        chave_registro,
-                        num_intrp_uci_alvo,
-                        num_seq_intrp_alvo,
-                        num_uc_uci,
-                        protocolo_uc,
-                        inicio_original,
-                        inicio_sugerido,
-                        fim_alvo,
-                        num_intrp_uci_origem,
-                        num_seq_intrp_origem,
-                        minutos_interseccao,
-                        'DTHR_INICIO_INTRP_UC' AS campo_alterado,
-                        inicio_original AS valor_original,
-                        inicio_sugerido AS valor_novo,
-                        'NUM_INTRP_INIC_MANOBRA_UCI' AS campo_alterado_2,
-                        NULL AS valor_original_2,
-                        num_seq_intrp_origem AS valor_novo_2,
-                        ? AS usuario,
-                        ? AS perfil,
-                        ? AS ip,
-                        ? AS pc,
-                        ? AS justificativa,
-                        current_timestamp AS implantado_em
-                    FROM read_parquet(?)
-                    WHERE status_pendencia = 'pendente'
-                ) TO ? (FORMAT PARQUET)
+                CREATE TEMP TABLE log_fase2 AS
+                SELECT
+                    ? AS anomes,
+                    regra,
+                    chave_registro,
+                    num_intrp_uci_alvo,
+                    num_seq_intrp_alvo,
+                    num_uc_uci,
+                    protocolo_uc,
+                    inicio_original,
+                    inicio_sugerido,
+                    fim_alvo,
+                    num_intrp_uci_origem,
+                    num_seq_intrp_origem,
+                    minutos_interseccao,
+                    'DTHR_INICIO_INTRP_UC' AS campo_alterado,
+                    inicio_original AS valor_original,
+                    inicio_sugerido AS valor_novo,
+                    'NUM_INTRP_INIC_MANOBRA_UCI' AS campo_alterado_2,
+                    NULL AS valor_original_2,
+                    num_seq_intrp_origem AS valor_novo_2,
+                    ? AS usuario,
+                    ? AS perfil,
+                    ? AS ip,
+                    ? AS pc,
+                    ? AS justificativa,
+                    current_timestamp AS implantado_em
+                FROM read_parquet(?)
+                WHERE status_pendencia = 'pendente'
                 """,
                 [
                     anomes,
@@ -360,9 +379,9 @@ class SobreposicaoUcFase2Service:
                     justificativa
                     or "Implantação governada da Fase 2 de sobreposição UC: ajuste de início e manobra inicial.",
                     str(analise),
-                    str(log),
                 ],
             )
+            connection.execute("COPY log_fase2 TO ? (FORMAT PARQUET)", [str(log)])
             self._copy_parquet(log, log_atual)
 
         temp.replace(origem)
@@ -379,7 +398,7 @@ class SobreposicaoUcFase2Service:
             analise=str(analise),
             log=str(log),
             log_atual=str(log_atual),
-            registros_atualizados=int(metrics[0] or 0),
+            registros_atualizados=registros_atualizados,
             ucs_afetadas=int(metrics[1] or 0),
             interrupcoes_ajustadas=int(metrics[2] or 0),
             minutos_interseccao=float(metrics[3] or 0),

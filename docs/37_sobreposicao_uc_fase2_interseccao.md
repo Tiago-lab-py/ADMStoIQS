@@ -122,3 +122,45 @@ python -m backend.scripts.implantar_sobreposicao_uc_fase2 --anomes 202605 --usua
 Esta fase não classifica registros com motivo `91`. Ela corrige o início parcial da interrupção da UC e mantém rastreabilidade de manobra.
 
 A classificação com `NUM_MOTIVO_TRAT_DIF_UCI = 91` permanece no módulo de sobreposição UC Fase 1, usado para registros contidos/excluídos.
+# Procedimento revisado
+
+## Materialização
+
+A materialização da fase 2 lê `agrupamento_oms_APURACAO_[anomes].parquet` e grava:
+
+- `analise_sobreposicao_uc_fase2_APURACAO_[anomes].parquet`;
+- `analise_sobreposicao_uc_fase2_APURACAO_ATUAL.parquet`.
+
+A etapa não altera a apuração e não recalcula indicadores.
+
+```bat
+python -m backend.scripts.materializar_sobreposicao_uc_fase2 --anomes 202605
+```
+
+## Implantação
+
+A implantação só deve executar alteração quando houver ajustes com `status_pendencia = 'pendente'`.
+
+Quando não houver ajustes, o processo encerra sem:
+
+- gerar backup;
+- reescrever `agrupamento_oms_APURACAO_[anomes].parquet`;
+- recalcular base tratada;
+- recalcular indicadores;
+- recalcular ressarcimento.
+
+```bat
+python -m backend.scripts.implantar_sobreposicao_uc_fase2 --anomes 202605 --usuario admin --perfil admin
+```
+
+## Correção técnica aplicada
+
+O DuckDB pode inverter a ordem prática de parâmetros em comandos no formato `COPY (...) TO ?`
+quando a query interna também usa `read_parquet(?)`.
+
+Para evitar leitura do parquet de saída antes de ele existir, a materialização e o log da fase 2 passam a usar:
+
+1. `CREATE TEMP TABLE ... AS SELECT ... FROM read_parquet(?)`;
+2. `COPY tabela_temporaria TO ? (FORMAT PARQUET)`.
+
+Esse padrão é mais estável e deve ser preferido nas próximas rotinas.

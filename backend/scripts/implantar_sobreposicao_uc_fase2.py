@@ -36,6 +36,14 @@ def main() -> None:
         justificativa=args.justificativa,
         recalcular=not args.sem_recalculo,
     )
+    if result.sem_alteracoes:
+        print("[Sobreposição UC Fase 2] Nenhum ajuste pendente. Apuração, tratado e indicadores não foram recalculados.")
+        print(f"Anomes: {result.anomes}")
+        print(f"Análise: {result.analise}")
+        print(f"Registros atualizados: {result.registros_atualizados}")
+        print(f"Recálculos: {result.recalculos}")
+        return
+
     print("[Sobreposição UC Fase 2] Implantação concluída.")
     print(f"Anomes: {result.anomes}")
     print(f"Origem atualizada: {result.origem}")
