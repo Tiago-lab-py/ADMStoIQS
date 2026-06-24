@@ -19,6 +19,8 @@ from backend.app.api.routes import router as api_router
 from backend.app.services.indicadores_continuidade_service import IndicadoresContinuidadeService
 from backend.app.services.ressarcimento_service_v2 import RessarcimentoService
 from backend.app.services.sobreposicao_interrupcao_service import SobreposicaoInterrupcaoService
+from backend.app.services.sobreposicao_uc_service import SobreposicaoUcService
+from backend.app.services.sobreposicao_uc_fase2_service import SobreposicaoUcFase2Service
 from backend.app.services.tratamento_massivo_service import TratamentoMassivoService
 
 
@@ -279,6 +281,144 @@ def create_app() -> FastAPI:
             "total": total,
             "resumo": _rows_to_dicts(["acao_sugerida", "total"], resumo_rows),
             "registros": _rows_to_dicts(columns, rows),
+        }
+
+    @app.post("/apuracao/analises/sobreposicao-uc/materializar/{anomes}")
+    def materializar_sobreposicao_uc(anomes: str) -> dict[str, Any]:
+        try:
+            result = SobreposicaoUcService().materializar(anomes)
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+        return {
+            "anomes": result.anomes,
+            "origem": str(result.origem),
+            "parquet": str(result.parquet),
+            "parquet_atual": str(result.parquet_atual),
+            "registros_classificar_91": result.registros_classificar_91,
+            "ucs_afetadas": result.ucs_afetadas,
+            "interrupcoes_afetadas": result.interrupcoes_afetadas,
+            "horas_uc_reduzidas": result.horas_uc_reduzidas,
+            "chi_reduzido_estimado": result.chi_reduzido_estimado,
+            "status": "processado",
+        }
+
+    @app.get("/apuracao/analises/sobreposicao-uc")
+    def consultar_sobreposicao_uc(
+        anomes: str = Query(default="202605"),
+        limit: int = Query(default=100, ge=1, le=1000),
+        offset: int = Query(default=0, ge=0),
+    ) -> dict[str, Any]:
+        try:
+            return SobreposicaoUcService().consultar(
+                anomes=anomes,
+                limit=limit,
+                offset=offset,
+            )
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+    @app.post("/apuracao/analises/sobreposicao-uc/implantar/{anomes}")
+    def implantar_sobreposicao_uc(
+        anomes: str,
+        request: Request,
+        payload: dict[str, Any] | None = None,
+    ) -> dict[str, Any]:
+        body = payload or {}
+        usuario = str(body.get("usuario") or body.get("user") or "sistema")
+        perfil = str(body.get("perfil") or body.get("profile") or "gestor")
+        justificativa = str(
+            body.get("justificativa")
+            or "Implantação governada de motivo 91 por sobreposição temporal de UC."
+        )
+        pc = str(body.get("pc") or body.get("host") or request.headers.get("x-workstation") or "")
+        ip = request.client.host if request.client else ""
+        recalcular = bool(body.get("recalcular", True))
+
+        try:
+            result = SobreposicaoUcService().implantar(
+                anomes=anomes,
+                usuario=usuario,
+                perfil=perfil,
+                justificativa=justificativa,
+                ip=ip,
+                pc=pc,
+                recalcular=recalcular,
+            )
+        except FileNotFoundError as error:
+            raise HTTPException(status_code=404, detail=str(error)) from error
+
+        return {
+            "anomes": result.anomes,
+            "origem": str(result.origem),
+            "backup": str(result.backup),
+            "analise": str(result.analise),
+            "log": str(result.log),
+            "log_atual": str(result.log_atual),
+            "registros_atualizados": result.registros_atualizados,
+            "ucs_afetadas": result.ucs_afetadas,
+            "interrupcoes_afetadas": result.interrupcoes_afetadas,
+            "chi_reduzido_estimado": result.chi_reduzido_estimado,
+            "recalculos": result.recalculos,
+            "status": "implantado",
+        }
+
+    @app.post("/apuracao/analises/sobreposicao-uc-fase2/materializar/{anomes}")
+    def materializar_sobreposicao_uc_fase2(anomes: str) -> dict[str, Any]:
+        result = SobreposicaoUcFase2Service().materializar(anomes)
+        return {
+            "anomes": result.anomes,
+            "origem": result.origem,
+            "parquet": result.parquet,
+            "parquet_atual": result.parquet_atual,
+            "total_ajustes": result.total_ajustes,
+            "ucs_afetadas": result.ucs_afetadas,
+            "interrupcoes_ajustadas": result.interrupcoes_ajustadas,
+            "minutos_interseccao": result.minutos_interseccao,
+            "status": "processado",
+        }
+
+    @app.get("/apuracao/analises/sobreposicao-uc-fase2")
+    def listar_sobreposicao_uc_fase2(
+        anomes: str | None = None,
+        limit: int = 100,
+        offset: int = 0,
+    ) -> dict[str, Any]:
+        return SobreposicaoUcFase2Service().listar(anomes=anomes, limit=limit, offset=offset)
+
+    @app.post("/apuracao/analises/sobreposicao-uc-fase2/implantar/{anomes}")
+    def implantar_sobreposicao_uc_fase2(
+        anomes: str,
+        request: Request,
+        payload: dict[str, Any] | None = Body(default=None),
+    ) -> dict[str, Any]:
+        payload = payload or {}
+        request_ip = request.client.host if request.client else ""
+        result = SobreposicaoUcFase2Service().implantar(
+            anomes=anomes,
+            usuario=str(payload.get("usuario") or "api"),
+            perfil=str(payload.get("perfil") or "admin"),
+            ip=str(payload.get("ip") or request_ip),
+            pc=str(payload.get("pc") or ""),
+            justificativa=str(
+                payload.get("justificativa")
+                or "Implantação governada da Fase 2 de sobreposição UC."
+            ),
+            recalcular=bool(payload.get("recalcular", True)),
+        )
+        return {
+            "anomes": result.anomes,
+            "origem": result.origem,
+            "backup": result.backup,
+            "analise": result.analise,
+            "log": result.log,
+            "log_atual": result.log_atual,
+            "registros_atualizados": result.registros_atualizados,
+            "ucs_afetadas": result.ucs_afetadas,
+            "interrupcoes_ajustadas": result.interrupcoes_ajustadas,
+            "minutos_interseccao": result.minutos_interseccao,
+            "recalculos": result.recalculos,
+            "status": "processado",
         }
 
     @app.get("/apuracao/decisoes/resumo")

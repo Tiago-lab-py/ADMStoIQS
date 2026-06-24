@@ -43,6 +43,7 @@ class PendenciasApuracaoResult:
     total_pendencias: int
     horario_negativo: int
     sobreposicao_interrupcao: int
+    sobreposicao_uc: int
     sem_causa_componente: int
 
 
@@ -59,7 +60,16 @@ class PendenciasApuracaoService:
         with duckdb.connect(database=":memory:") as connection:
             connection.execute(
                 self._create_pendencias_sql(),
-                [str(origem), criado_em, str(origem), criado_em, str(origem), criado_em],
+                [
+                    str(origem),
+                    criado_em,
+                    str(origem),
+                    criado_em,
+                    str(origem),
+                    criado_em,
+                    str(origem),
+                    criado_em,
+                ],
             )
             connection.execute("COPY pendencias TO ? (FORMAT PARQUET)", [str(destino)])
             total = self._count(connection, "SELECT count(*) FROM pendencias")
@@ -67,6 +77,10 @@ class PendenciasApuracaoService:
             sobreposicao = self._count(
                 connection,
                 "SELECT count(*) FROM pendencias WHERE regra = 'sobreposicao_interrupcao'",
+            )
+            sobreposicao_uc = self._count(
+                connection,
+                "SELECT count(*) FROM pendencias WHERE regra = 'sobreposicao_uc'",
             )
             sem_causa = self._count(
                 connection,
@@ -82,6 +96,7 @@ class PendenciasApuracaoService:
             total_pendencias=total,
             horario_negativo=horario,
             sobreposicao_interrupcao=sobreposicao,
+            sobreposicao_uc=sobreposicao_uc,
             sem_causa_componente=sem_causa,
         )
 
@@ -285,6 +300,84 @@ class PendenciasApuracaoService:
                 FROM equipamento_pares
                 WHERE acao = 'sugerir_rejeitar'
             ),
+            uc_base AS (
+                SELECT
+                    CAST(NUM_INTRP_UCI AS VARCHAR) || '|' ||
+                    CAST(NUM_POSTO_UCI AS VARCHAR) || '|' ||
+                    CAST(NUM_UC_UCI AS VARCHAR) AS chave_registro_uc,
+                    CAST(NUM_INTRP_UCI AS VARCHAR) AS num_intrp_uci,
+                    CAST(NUM_POSTO_UCI AS VARCHAR) AS num_posto_uci,
+                    CAST(NUM_UC_UCI AS VARCHAR) AS num_uc_uci,
+                    {num_seq} AS num_seq_intrp,
+                    COALESCE(NULLIF(TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)), ''), 'SEM_PROTOCOLO') AS protocolo,
+                    min({_timestamp_expr("DTHR_INICIO_INTRP_UC")}) AS inicio_uc,
+                    max({fim}) AS fim_uc,
+                    max(CAST(REGIONAL_ORIGEM AS VARCHAR)) AS regional_origem,
+                    count(*) AS qtd_registros
+                FROM read_parquet(?)
+                WHERE CAST(ESTADO_INTRP AS VARCHAR) = '4'
+                  AND (
+                    NUM_MOTIVO_TRAT_DIF_UCI IS NULL
+                    OR NULLIF(TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)), '') IS NULL
+                  )
+                  AND NULLIF(TRIM(CAST(NUM_UC_UCI AS VARCHAR)), '') IS NOT NULL
+                  AND {_timestamp_expr("DTHR_INICIO_INTRP_UC")} IS NOT NULL
+                  AND {fim} IS NOT NULL
+                  AND {fim} >= {_timestamp_expr("DTHR_INICIO_INTRP_UC")}
+                  AND {num_seq} IS NOT NULL
+                GROUP BY
+                    CAST(NUM_INTRP_UCI AS VARCHAR),
+                    CAST(NUM_POSTO_UCI AS VARCHAR),
+                    CAST(NUM_UC_UCI AS VARCHAR),
+                    {num_seq},
+                    COALESCE(NULLIF(TRIM(CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR)), ''), 'SEM_PROTOCOLO')
+            ),
+            uc_pares AS (
+                SELECT
+                    a.*,
+                    b.num_seq_intrp AS num_seq_contem,
+                    ROW_NUMBER() OVER (
+                        PARTITION BY a.chave_registro_uc
+                        ORDER BY b.inicio_uc, b.fim_uc DESC, COALESCE(TRY_CAST(b.num_seq_intrp AS BIGINT), 9223372036854775807)
+                    ) AS prioridade
+                FROM uc_base a
+                JOIN uc_base b
+                  ON a.num_uc_uci = b.num_uc_uci
+                 AND a.protocolo = b.protocolo
+                 AND a.num_seq_intrp <> b.num_seq_intrp
+                 AND b.inicio_uc <= a.inicio_uc
+                 AND b.fim_uc >= a.fim_uc
+                 AND (
+                    b.inicio_uc < a.inicio_uc
+                    OR b.fim_uc > a.fim_uc
+                    OR COALESCE(TRY_CAST(b.num_seq_intrp AS BIGINT), 9223372036854775807)
+                       < COALESCE(TRY_CAST(a.num_seq_intrp AS BIGINT), 9223372036854775807)
+                 )
+            ),
+            uc AS (
+                SELECT
+                    'sobreposicao_uc' AS regra,
+                    'alta' AS gravidade,
+                    'NUM_UC_UCI|NUM_SEQ_INTRP' AS grao,
+                    CAST(num_uc_uci AS VARCHAR) || '|' || CAST(num_seq_intrp AS VARCHAR) AS chave_evento,
+                    CAST(chave_registro_uc AS VARCHAR) AS chave_registro,
+                    CAST(num_seq_intrp AS VARCHAR) AS num_seq_intrp,
+                    CAST(num_intrp_uci AS VARCHAR) AS num_intrp_uci,
+                    CAST(NULL AS VARCHAR) AS num_oper_chv_intrp,
+                    CAST(num_posto_uci AS VARCHAR) AS num_posto_uci,
+                    CAST(num_uc_uci AS VARCHAR) AS num_uc_uci,
+                    CAST(regional_origem AS VARCHAR) AS regional_origem,
+                    'NUM_MOTIVO_TRAT_DIF_UCI' AS campo_sugerido,
+                    CAST(NULL AS VARCHAR) AS valor_original,
+                    '91' AS valor_sugerido,
+                    'classificar_91' AS acao_sugerida,
+                    'pendente' AS status_pendencia,
+                    'UC com interrupção contida em outra interrupção da mesma UC e mesmo protocolo. NUM_SEQ que contém: '
+                        || CAST(num_seq_contem AS VARCHAR) AS justificativa_sistema,
+                    ? AS criado_em
+                FROM uc_pares
+                WHERE prioridade = 1
+            ),
             causa_base AS (
                 SELECT
                     {num_seq} AS num_seq_intrp,
@@ -330,6 +423,7 @@ class PendenciasApuracaoService:
             UNION ALL
             SELECT * FROM equipamento
             UNION ALL
+            SELECT * FROM uc
+            UNION ALL
             SELECT * FROM causa
         """
-

@@ -421,7 +421,6 @@ class IndicadoresContinuidadeService:
               AND estado_intrp = '4'
               AND duracao_longa_liquida
               AND protocolo_liquido
-              AND estado_intrp = '4'
               AND (
                     motivo_tratamento IS NULL
                  OR NULLIF(TRIM(motivo_tratamento), '') IS NULL

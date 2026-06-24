@@ -176,7 +176,14 @@ class TratamentoMassivoService:
                         OR COD_COMP_INTRP IS NULL
                         OR TRIM(CAST(COD_COMP_INTRP AS VARCHAR)) = ''
                     ) AS flag_sem_causa_componente,
-                    CAST(NUM_SEQ_INTRP AS VARCHAR) IN (SELECT NUM_SEQ_INTRP FROM sobreposicao_excluir) AS flag_sobreposicao_interrupcao
+                    (
+                        CAST(NUM_SEQ_INTRP AS VARCHAR) IN (SELECT NUM_SEQ_INTRP FROM sobreposicao_excluir)
+                        AND CAST(ESTADO_INTRP AS VARCHAR) = '4'
+                        AND (
+                            NUM_MOTIVO_TRAT_DIF_UCI IS NULL
+                            OR NULLIF(TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)), '') IS NULL
+                        )
+                    ) AS flag_sobreposicao_interrupcao
                 FROM base
                 """
             )

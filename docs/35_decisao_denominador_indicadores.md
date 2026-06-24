@@ -35,7 +35,6 @@ FEC = soma(FIC) / quantidade_de_UCs
 
 qualquer alteração no denominador muda diretamente DEC e FEC.
 
-Se o denominador IQS for menor que o total de UCs distintas observadas no OMS, o indicador aumenta. Por isso, uma mudança de `DEC antes` de aproximadamente `0,76` para `1,00` pode ser efeito esperado da troca de fonte do divisor.
 
 ## Critério Líquido Atual
 

@@ -478,6 +478,8 @@ export function App() {
   const [removerCanceladas, setRemoverCanceladas] = useState(false);
   const [justificativa, setJustificativa] = useState("");
   const [csvResumo, setCsvResumo] = useState<ApiResponse | null>(null);
+  const [sobreposicaoUcFase2Resumo, setSobreposicaoUcFase2Resumo] = useState<ApiResponse | null>(null);
+  const [sobreposicaoUcResumo, setSobreposicaoUcResumo] = useState<ApiResponse | null>(null);
   const [duracaoMinFiltro, setDuracaoMinFiltro] = useState("");
   const [duracaoMaxFiltro, setDuracaoMaxFiltro] = useState("");
 
@@ -513,7 +515,9 @@ export function App() {
       const endpoint =
         paginaAtual === "dashboard" || paginaAtual === "etl" || paginaAtual === "exportacao" || paginaAtual === "admin"
           ? "/mart/dados?limit=100&offset=0"
-          : `/tratamentos/${paginaAtual}?limit=100&offset=0`;
+          : paginaAtual === "sobreposicao-uc"
+            ? `/apuracao/analises/sobreposicao-uc-fase2?anomes=${encodeURIComponent(mesApuracao)}&limit=100&offset=0`
+            : `/tratamentos/${paginaAtual}?limit=100&offset=0`;
       const body = await request<ApiResponse>(endpoint);
       const dados = extrairRegistros(body);
       setRegistros(dados);
@@ -527,7 +531,7 @@ export function App() {
     } finally {
       setBusy(false);
     }
-  }, [pagina, carregarResumo]);
+  }, [pagina, carregarResumo, mesApuracao]);
 
   useEffect(() => {
     if (usuario && pagina !== "etl") {
@@ -623,14 +627,142 @@ export function App() {
       );
       setMensagemTipo("success");
       setMensagem(
-        `Processamento concluído. ${body.total_pendencias || 0} pendência(s) materializada(s). ` +
+          `Processamento concluído. ${body.total_pendencias || 0} pendência(s) materializada(s). ` +
           `Horário negativo: ${body.horario_negativo || 0}. ` +
           `Sobreposição: ${body.sobreposicao_interrupcao || 0}. ` +
+          `Sobreposição UC: ${body.sobreposicao_uc || 0}. ` +
           `Causa/componente: ${body.sem_causa_componente || 0}.`,
       );
       await carregarResumo().catch(() => undefined);
     } catch (error: any) {
       setErro(error.message || "Falha ao materializar pendências.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const analisarSobreposicaoUc = async () => {
+    setBusy(true);
+    setErro("");
+    setMensagemTipo("processing");
+    setMensagem("Aguarde processamento: analisando sobreposição temporal por UC...");
+    try {
+      const body = await request<ApiResponse>(
+        `/apuracao/analises/sobreposicao-uc/materializar/${encodeURIComponent(mesApuracao)}`,
+        { method: "POST" },
+      );
+      setSobreposicaoUcResumo(body);
+      setMensagemTipo("success");
+      setMensagem(
+        `Processamento concluído. ${body.registros_classificar_91 || 0} registro(s) sugeridos para motivo 91. ` +
+          `CHI reduzido estimado: ${Number(body.chi_reduzido_estimado || 0).toLocaleString("pt-BR", {
+            maximumFractionDigits: 2,
+          })}.`,
+      );
+    } catch (error: any) {
+      setErro(error.message || "Falha ao analisar sobreposição temporal por UC.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const implantarSobreposicaoUc = async () => {
+    setBusy(true);
+    setErro("");
+    setMensagemTipo("processing");
+    setMensagem("Aguarde processamento: implantando motivo 91 e recalculando marts...");
+    try {
+      const body = await request<ApiResponse>(
+        `/apuracao/analises/sobreposicao-uc/implantar/${encodeURIComponent(mesApuracao)}`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            usuario: usuario?.usuario || "sistema",
+            perfil: usuario?.perfil || "gestor",
+            pc: navigator.userAgent,
+            justificativa:
+              "Implantação governada de motivo 91 por sobreposição temporal de UC.",
+            recalcular: true,
+          }),
+        },
+      );
+      setSobreposicaoUcResumo(body);
+      setMensagemTipo("success");
+      setMensagem(
+        `Processamento concluído. ${body.registros_atualizados || 0} registro(s) atualizados com motivo 91. ` +
+          "Pendências, tratamento, indicadores e ressarcimento foram solicitados para recálculo.",
+      );
+      await carregarResumo().catch(() => undefined);
+    } catch (error: any) {
+      setErro(error.message || "Falha ao implantar motivo 91 para sobreposição UC.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const analisarSobreposicaoUcFase2 = async () => {
+    setBusy(true);
+    setErro("");
+    setMensagemTipo("processing");
+    setMensagem("Aguarde processamento: analisando interseções temporais por UC...");
+    try {
+      const body = await request<ApiResponse>(
+        `/apuracao/analises/sobreposicao-uc-fase2/materializar/${encodeURIComponent(mesApuracao)}`,
+        { method: "POST" },
+      );
+      setSobreposicaoUcFase2Resumo(body);
+      const lista = await request<ApiResponse>(
+        `/apuracao/analises/sobreposicao-uc-fase2?anomes=${encodeURIComponent(mesApuracao)}&limit=100&offset=0`,
+      );
+      const dados = extrairRegistros(lista);
+      setRegistros(dados);
+      setRegistroAtual(dados[0] || null);
+      setSelecionados(new Set());
+      setMensagemTipo("success");
+      setMensagem(
+        `Processamento concluído. ${body.total_ajustes || 0} ajuste(s) sugerido(s), ` +
+          `${body.ucs_afetadas || 0} UC(s) afetada(s).`,
+      );
+    } catch (error: any) {
+      setErro(error.message || "Falha ao analisar sobreposição UC Fase 2.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const implantarSobreposicaoUcFase2 = async () => {
+    if (!justificativa.trim()) {
+      setErro("Informe a justificativa para implantar os ajustes da Fase 2.");
+      return;
+    }
+    setBusy(true);
+    setErro("");
+    setMensagemTipo("processing");
+    setMensagem("Aguarde processamento: implantando ajustes da sobreposição UC Fase 2...");
+    try {
+      const body = await request<ApiResponse>(
+        `/apuracao/analises/sobreposicao-uc-fase2/implantar/${encodeURIComponent(mesApuracao)}`,
+        {
+          method: "POST",
+          body: JSON.stringify({
+            usuario: usuario.usuario,
+            perfil: usuario.perfil,
+            justificativa,
+            recalcular: true,
+          }),
+        },
+      );
+      setSobreposicaoUcFase2Resumo(body);
+      setJustificativa("");
+      setMensagemTipo("success");
+      setMensagem(
+        `Processamento concluído. ${body.registros_atualizados || 0} registro(s) ajustado(s); ` +
+          `${body.interrupcoes_ajustadas || 0} interrupção(ões) afetada(s).`,
+      );
+      await carregarResumo().catch(() => undefined);
+      await carregarDados().catch(() => undefined);
+    } catch (error: any) {
+      setErro(error.message || "Falha ao implantar sobreposição UC Fase 2.");
     } finally {
       setBusy(false);
     }
@@ -898,6 +1030,48 @@ export function App() {
               ))}
             </div>
 
+            {pagina === "sobreposicao-uc" && (
+              <section className="etl-card uc-fase2-card">
+                <div className="etl-window">
+                  <div>
+                    <span className="section-kicker">Sobreposição UC — Fase 2</span>
+                    <h2>Interseção parcial por UC</h2>
+                    <p>
+                      Analisa registros com `ESTADO_INTRP = 4`, mesmo protocolo e motivo nulo.
+                      Quando o início da segunda interrupção cruza o fim da primeira, sugere
+                      deslocar `DTHR_INICIO_INTRP_UC` e preencher `NUM_INTRP_INIC_MANOBRA_UCI`.
+                    </p>
+                  </div>
+                  <div className="etl-window-controls">
+                    <button disabled={busy} onClick={analisarSobreposicaoUcFase2}>
+                      Analisar Fase 2
+                    </button>
+                    <button disabled={busy} onClick={implantarSobreposicaoUcFase2}>
+                      Implantar ajustes
+                    </button>
+                  </div>
+                </div>
+                <div className="metric-grid">
+                  <div>
+                    <span>Ajustes sugeridos</span>
+                    <strong>{sobreposicaoUcFase2Resumo?.total_ajustes ?? sobreposicaoUcFase2Resumo?.registros_atualizados ?? 0}</strong>
+                  </div>
+                  <div>
+                    <span>UCs afetadas</span>
+                    <strong>{sobreposicaoUcFase2Resumo?.ucs_afetadas ?? 0}</strong>
+                  </div>
+                  <div>
+                    <span>Interrupções ajustadas</span>
+                    <strong>{sobreposicaoUcFase2Resumo?.interrupcoes_ajustadas ?? 0}</strong>
+                  </div>
+                  <div>
+                    <span>Minutos interseção</span>
+                    <strong>{valor(sobreposicaoUcFase2Resumo?.minutos_interseccao ?? 0)}</strong>
+                  </div>
+                </div>
+              </section>
+            )}
+
             {pagina === "dashboard" && Array.isArray(resumo.rejeitados_por_atividade) && resumo.rejeitados_por_atividade.length > 0 && (
               <section className="records-card activity-summary">
                 <span className="section-kicker">Rejeitados por atividade</span>
@@ -927,6 +1101,70 @@ export function App() {
                   <strong>{selecionados.size}</strong>
                 </div>
               </div>
+            )}
+
+            {pagina === "sobreposicao-interrupcao" && (
+              <section className="records-card activity-summary">
+                <div className="etl-window">
+                  <div>
+                    <span className="section-kicker">Análise complementar</span>
+                    <h3>Sobreposição temporal por UC</h3>
+                    <p>
+                      Verifica registros com `ESTADO_INTRP = 4`, mesmo protocolo e
+                      `NUM_MOTIVO_TRAT_DIF_UCI` nulo, onde a janela da UC está
+                      contida em outra interrupção da mesma UC.
+                    </p>
+                  </div>
+                  <div className="etl-window-controls">
+                    <button disabled={busy} onClick={analisarSobreposicaoUc}>
+                      Analisar UC
+                    </button>
+                    <button
+                      disabled={busy || !sobreposicaoUcResumo}
+                      onClick={implantarSobreposicaoUc}
+                    >
+                      Implantar motivo 91
+                    </button>
+                  </div>
+                </div>
+                <div className="metric-grid">
+                  <div>
+                    <span>Classificar com 91</span>
+                    <strong>
+                      {valor(
+                        sobreposicaoUcResumo?.registros_classificar_91 ??
+                          sobreposicaoUcResumo?.registros_atualizados ??
+                          0,
+                      )}
+                    </strong>
+                  </div>
+                  <div>
+                    <span>UCs afetadas</span>
+                    <strong>{valor(sobreposicaoUcResumo?.ucs_afetadas ?? 0)}</strong>
+                  </div>
+                  <div>
+                    <span>Interrupções afetadas</span>
+                    <strong>{valor(sobreposicaoUcResumo?.interrupcoes_afetadas ?? 0)}</strong>
+                  </div>
+                  <div>
+                    <span>CHI reduzido estimado</span>
+                    <strong>
+                      {Number(sobreposicaoUcResumo?.chi_reduzido_estimado || 0).toLocaleString(
+                        "pt-BR",
+                        { maximumFractionDigits: 2 },
+                      )}
+                    </strong>
+                  </div>
+                </div>
+                {sobreposicaoUcResumo?.backup && (
+                  <div className="audit-grid">
+                    <span>Backup</span>
+                    <strong>{valor(sobreposicaoUcResumo.backup)}</strong>
+                    <span>Log</span>
+                    <strong>{valor(sobreposicaoUcResumo.log)}</strong>
+                  </div>
+                )}
+              </section>
             )}
 
             {pagina === "horario-negativo" && (

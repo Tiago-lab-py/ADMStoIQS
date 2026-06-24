@@ -42,6 +42,6 @@ def materializar_pendencias(anomes: str) -> dict[str, Any]:
         "total_pendencias": result.total_pendencias,
         "horario_negativo": result.horario_negativo,
         "sobreposicao_interrupcao": result.sobreposicao_interrupcao,
+        "sobreposicao_uc": result.sobreposicao_uc,
         "sem_causa_componente": result.sem_causa_componente,
     }
-

@@ -75,6 +75,11 @@ class SobreposicaoInterrupcaoService:
                         COUNT(DISTINCT COALESCE(CAST(NUM_POSTO_UCI AS VARCHAR), '') || '|' || COALESCE(CAST(NUM_UC_UCI AS VARCHAR), '')) AS uc_afetadas
                     FROM origem
                     WHERE CAST(TIPO_EQP_INTRP AS VARCHAR) = 'C'
+                      AND CAST(ESTADO_INTRP AS VARCHAR) = '4'
+                      AND (
+                            NUM_MOTIVO_TRAT_DIF_UCI IS NULL
+                         OR NULLIF(TRIM(CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR)), '') IS NULL
+                      )
                       AND NUM_OPER_CHV_INTRP IS NOT NULL
                       AND TRIM(CAST(NUM_OPER_CHV_INTRP AS VARCHAR)) <> ''
                       AND NUM_SEQ_INTRP IS NOT NULL

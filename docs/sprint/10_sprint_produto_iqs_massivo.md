@@ -161,3 +161,14 @@ http://127.0.0.1:5173/
 ```
 
 E acessar `Produto IQS`.
+## Regra de remoção por sobreposição
+
+A remoção massiva por sobreposição de interrupção deve considerar somente registros elegíveis ao tratamento líquido:
+
+- `ESTADO_INTRP = '4'`;
+- `NUM_MOTIVO_TRAT_DIF_UCI` nulo ou vazio;
+- `TIPO_EQP_INTRP = 'C'`;
+- `NUM_OPER_CHV_INTRP` preenchido;
+- interrupção contida temporalmente em outra interrupção do mesmo `NUM_OPER_CHV_INTRP`.
+
+Registros fora dessa regra não devem ser removidos automaticamente por sobreposição.
