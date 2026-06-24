@@ -89,6 +89,27 @@ export type IndicadoresResumo = {
   regionais: IndicadoresComparativoItem[]
 }
 
+export type RessarcimentoGrupoItem = {
+  cenario: string
+  grupo_tensao: string
+  ucs: number
+  violacoes: number
+  valor_estimado: number
+}
+
+export type RessarcimentoResumo = {
+  status: string
+  arquivo?: string
+  total_registros?: number
+  total_ucs?: number
+  violacoes_antes?: number
+  violacoes_depois?: number
+  valor_estimado_antes?: number
+  valor_estimado_depois?: number
+  status_formula?: string
+  por_grupo?: RessarcimentoGrupoItem[]
+}
+
 export type IndicadoresMaterializacao = {
   anomes: string
   mart_uc: string
@@ -163,6 +184,16 @@ export function getPortalIndicadoresResumo(anomes: string): Promise<IndicadoresR
 
 export function materializarPortalIndicadores(anomes: string): Promise<IndicadoresMaterializacao> {
   return requestJson<IndicadoresMaterializacao>(`/indicadores/continuidade/${encodeURIComponent(anomes)}/materializar`, {
+    method: 'POST',
+  })
+}
+
+export function getPortalRessarcimentoResumo(anomes: string): Promise<RessarcimentoResumo> {
+  return requestJson<RessarcimentoResumo>(`/indicadores/ressarcimento/${encodeURIComponent(anomes)}/resumo`)
+}
+
+export function materializarPortalRessarcimento(anomes: string): Promise<RessarcimentoResumo> {
+  return requestJson<RessarcimentoResumo>(`/indicadores/ressarcimento/${encodeURIComponent(anomes)}/materializar`, {
     method: 'POST',
   })
 }

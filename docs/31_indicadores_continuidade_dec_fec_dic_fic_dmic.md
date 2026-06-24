@@ -87,8 +87,8 @@ data/mart/apuracao/agrupamento_oms_APURACAO_[anomes]_TRATADO.parquet
 Para DEC/FEC, a quantidade de UCs deve vir preferencialmente das fontes IQS materializadas:
 
 ```text
-data/external/iqs/mart/mart_consumidores_regional_[anomes].parquet
 data/external/iqs/mart/mart_consumidor_faturado_regional_[anomes].parquet
+data/external/iqs/mart/mart_consumidores_regional_[anomes].parquet
 ```
 
 Quando não houver denominador IQS disponível, usar fallback documentado:
@@ -98,6 +98,22 @@ COUNT(DISTINCT NUM_UC_UCI)
 ```
 
 Esse fallback deve ser sinalizado no mart para evitar interpretação regulatória indevida.
+
+### Mudança de denominador
+
+Durante o desenvolvimento, o indicador podia usar como fallback:
+
+```text
+COUNT(DISTINCT NUM_UC_UCI)
+```
+
+Com a materialização IQS disponível, o denominador preferencial passou a ser:
+
+```text
+IQS_CONSUMIDOR_FATURADO_REGIONAL
+```
+
+Isso pode alterar o valor de DEC/FEC. Exemplo: se o divisor IQS for menor que o total de UCs distintas presentes no OMS, o DEC/FEC aumenta. Portanto, diferenças como `DEC antes` sair de aproximadamente `0,76` para `1,00` são esperadas quando a fonte do denominador muda.
 
 ## Filtro de UC Faturada
 
@@ -182,21 +198,27 @@ Critério aplicado:
 
 ```text
 duracao_minutos_uc >= 3
-AND tipo_protocolo = '0'
+AND ESTADO_INTRP = '4'
+AND TIPO_PROTOC_JUSTIF_UCI = '0'
+AND NUM_MOTIVO_TRAT_DIF_UCI IS NULL
 AND UC faturada
 ```
 
 Onde:
 
 - `duracao_minutos_uc` é calculada entre `DTHR_INICIO_INTRP_UC` e `DATA_HORA_FIM_INTRP`;
-- `tipo_protocolo` prioriza `TIPO_PROTOC_JUSTIF_UCI` e, se ausente, usa `TIPO_PROTOC_JUSTIF_INTRP`;
+- `ESTADO_INTRP = '4'` restringe a apuração aos registros válidos para indicador;
+- `TIPO_PROTOC_JUSTIF_UCI = '0'` deve ser aplicado de forma estrita;
+- `NUM_MOTIVO_TRAT_DIF_UCI` deve estar nulo ou vazio;
 - `UC faturada` vem da fonte IQS/HCAI `uc_faturada_hcai_[anomes].parquet`.
 
 O mart deve registrar:
 
 ```text
-regra_liquido = DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_FATURADA
+regra_liquido = ESTADO_4_DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_MOTIVO_NULO_FATURADA
 ```
+
+Quando o frontend ainda exibir o rótulo antigo `DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_FATURADA`, os indicadores devem ser rematerializados para atualizar o metadado da regra.
 
 ## Marts Propostos
 
@@ -432,3 +454,16 @@ docs/32_indicadores_ressarcimento.md
 ## Observação Regulatória
 
 As fórmulas de cálculo devem ser validadas contra a versão vigente do PRODIST Módulo 8 e contra a regra interna de apuração do IQS antes de serem usadas como valor oficial. Nesta etapa, o objetivo é apoiar decisão de tratamento e evidenciar impacto antes/depois.
+## Regra líquida vigente
+
+Para DEC/FEC/DIC/FIC/DMIC, a base líquida considerada pelo portal gestor deve seguir a regra:
+
+`ESTADO_4_DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_MOTIVO_NULO_FATURADA`
+
+Critérios aplicados:
+
+- `ESTADO_INTRP = '4'`;
+- duração válida e maior ou igual a 3 minutos;
+- `TIPO_PROTOC_JUSTIF_UCI = '0'`;
+- `NUM_MOTIVO_TRAT_DIF_UCI` nulo ou vazio;
+- UC faturada conforme `uc_faturada_hcai_[anomes].parquet`.

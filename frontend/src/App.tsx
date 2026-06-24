@@ -611,6 +611,31 @@ export function App() {
     }
   };
 
+  const materializarPendencias = async () => {
+    setBusy(true);
+    setErro("");
+    setMensagemTipo("processing");
+    setMensagem("Aguarde processamento: materializando pendências da apuração...");
+    try {
+      const body = await request<ApiResponse>(
+        `/apuracao/pendencias/materializar/${encodeURIComponent(mesApuracao)}`,
+        { method: "POST" },
+      );
+      setMensagemTipo("success");
+      setMensagem(
+        `Processamento concluído. ${body.total_pendencias || 0} pendência(s) materializada(s). ` +
+          `Horário negativo: ${body.horario_negativo || 0}. ` +
+          `Sobreposição: ${body.sobreposicao_interrupcao || 0}. ` +
+          `Causa/componente: ${body.sem_causa_componente || 0}.`,
+      );
+      await carregarResumo().catch(() => undefined);
+    } catch (error: any) {
+      setErro(error.message || "Falha ao materializar pendências.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const agirRegistros = async (acao: "validar" | "rejeitar" | "ignorar-regra") => {
     const alvos =
       selecionados.size > 0
@@ -821,6 +846,20 @@ export function App() {
                   Remover canceladas (`ESTADO_INTRP = 7`)
                 </label>
                 <button disabled={busy} onClick={gerarApuracao}>Gerar apuração mensal</button>
+              </div>
+
+              <div className="etl-window">
+                <div>
+                  <span className="section-kicker">Janela 4</span>
+                  <h2>Materializar pendências</h2>
+                  <p>
+                    Gera `pendencias_APURACAO_{mesApuracao}.parquet` e atualiza
+                    `pendencias_APURACAO_ATUAL.parquet` para as filas de correção.
+                  </p>
+                </div>
+                <button disabled={busy} onClick={materializarPendencias}>
+                  Materializar pendências
+                </button>
               </div>
 
               {csvResumo && (

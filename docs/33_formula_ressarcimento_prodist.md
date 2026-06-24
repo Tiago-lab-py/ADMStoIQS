@@ -20,6 +20,7 @@ O ressarcimento não recalcula a elegibilidade de cada interrupção linha a lin
 
 - UC faturada conforme HCAI/IQS;
 - duração da interrupção maior ou igual a 3 minutos;
+- `ESTADO_INTRP = '4'`;
 - `TIPO_PROTOC_JUSTIF_UCI = '0'`;
 - `NUM_MOTIVO_TRAT_DIF_UCI` nulo ou vazio;
 - realizados mensais por UC:

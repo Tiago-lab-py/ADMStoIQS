@@ -341,7 +341,17 @@ class OmsUnionService:
                     FROM enriched
                 )
                 SELECT
-                    * EXCLUDE (__inicio_ts, __fim_ts, __rn),
+                    * EXCLUDE (__inicio_ts, __fim_ts, __rn, REGIONAL_ORIGEM),
+                    CASE
+                        WHEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, '')))) = 'P' THEN 'CSL'
+                        WHEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, '')))) = 'L' THEN 'NRT'
+                        WHEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, '')))) = 'M' THEN 'NRO'
+                        WHEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, '')))) = 'C' THEN 'LES'
+                        WHEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, '')))) = 'V' THEN 'OES'
+                        WHEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, '')))) IN ('CSL', 'NRT', 'NRO', 'LES', 'OES')
+                            THEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, ''))))
+                        ELSE 'COPEL'
+                    END AS REGIONAL_ORIGEM,
                     COALESCE(duracao < 0, false) AS erro_duracao,
                     COALESCE(duracao >= 3, false) AS duracao_longa
                 FROM ranked

@@ -6,11 +6,14 @@ import {
   getPortalFilasResumo,
   getPortalIqsResumo,
   getPortalMartResumo,
+  getPortalRessarcimentoResumo,
   getPortalTratamentoResumo,
   IndicadoresResumo,
+  materializarPortalRessarcimento,
   materializarPortalIndicadores,
   IqsResumo,
   MartResumo,
+  RessarcimentoResumo,
   TratamentoExportacao,
   TratamentoResumo,
 } from './gestorApi'
@@ -197,11 +200,15 @@ function DashboardPage({
 function IndicadoresPage({
   anomes,
   indicadoresResumo,
+  ressarcimentoResumo,
   onResumoUpdate,
+  onRessarcimentoUpdate,
 }: {
   anomes: string
   indicadoresResumo: IndicadoresResumo | null
+  ressarcimentoResumo: RessarcimentoResumo | null
   onResumoUpdate: (resumo: IndicadoresResumo) => void
+  onRessarcimentoUpdate: (resumo: RessarcimentoResumo) => void
 }) {
   const [actionState, setActionState] = useState<LoadState>({
     status: 'idle',
@@ -223,7 +230,24 @@ function IndicadoresPage({
     }
   }
 
+  const materializarRessarcimento = async () => {
+    setActionState({ status: 'loading', message: 'Aguarde processamento: materializando ressarcimento estimado...' })
+    try {
+      const resumo = await materializarPortalRessarcimento(anomes)
+      onRessarcimentoUpdate(resumo)
+      setActionState({ status: 'success', message: 'Processamento concluído: ressarcimento atualizado.' })
+    } catch (error) {
+      setActionState({
+        status: 'error',
+        message: error instanceof Error ? error.message : 'Falha ao materializar ressarcimento.',
+      })
+    }
+  }
+
   const copel = indicadoresResumo?.copel
+  const valorAntes = ressarcimentoResumo?.valor_estimado_antes ?? 0
+  const valorDepois = ressarcimentoResumo?.valor_estimado_depois ?? 0
+  const ganhoEstimado = valorAntes - valorDepois
 
   return (
     <>
@@ -235,6 +259,14 @@ function IndicadoresPage({
         <Card label="DMIC máx. depois" value={copel?.dmic_max_depois?.toFixed?.(2) ?? 0} hint="Horas" />
       </section>
 
+      <section className="gestor-grid gestor-grid--cards">
+        <Card label="Ressarc. antes" value={valorAntes.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} hint="Estimativa operacional" />
+        <Card label="Ressarc. depois" value={valorDepois.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} hint="Após tratamento" accent="success" />
+        <Card label="Redução estimada" value={ganhoEstimado.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })} hint="Antes - depois" accent={ganhoEstimado >= 0 ? 'success' : 'warning'} />
+        <Card label="Violações antes" value={ressarcimentoResumo?.violacoes_antes ?? 0} hint="UCs/linhas com violação" />
+        <Card label="Violações depois" value={ressarcimentoResumo?.violacoes_depois ?? 0} hint="Após tratamento" />
+      </section>
+
       <section className="gestor-panel">
         <div className="gestor-panel-title">
           <div>
@@ -243,6 +275,9 @@ function IndicadoresPage({
           </div>
           <button className="gestor-primary" onClick={() => void materializar()} type="button">
             Materializar indicadores
+          </button>
+          <button className="gestor-primary" onClick={() => void materializarRessarcimento()} type="button">
+            Materializar ressarcimento
           </button>
         </div>
 
@@ -260,6 +295,10 @@ function IndicadoresPage({
           <div>
             <span>Regra líquido</span>
             <strong>{copel?.regra_liquido ?? '-'}</strong>
+          </div>
+          <div>
+            <span>Fórmula ressarcimento</span>
+            <strong>{ressarcimentoResumo?.status_formula ?? '-'}</strong>
           </div>
         </div>
       </section>
@@ -618,16 +657,18 @@ export function GestorPortalApp() {
   const [martResumo, setMartResumo] = useState<MartResumo | null>(null)
   const [tratamentoResumo, setTratamentoResumo] = useState<TratamentoResumo | null>(null)
   const [indicadoresResumo, setIndicadoresResumo] = useState<IndicadoresResumo | null>(null)
+  const [ressarcimentoResumo, setRessarcimentoResumo] = useState<RessarcimentoResumo | null>(null)
 
   const loadPortal = useCallback(async () => {
     setLoadState({ status: 'loading', message: 'Aguarde processamento: carregando resumos materializados...' })
     try {
-      const [filas, iqs, mart, tratamento, indicadores] = await Promise.allSettled([
+      const [filas, iqs, mart, tratamento, indicadores, ressarcimento] = await Promise.allSettled([
         getPortalFilasResumo(anomes),
         getPortalIqsResumo(anomes),
         getPortalMartResumo(),
         getPortalTratamentoResumo(anomes),
         getPortalIndicadoresResumo(anomes),
+        getPortalRessarcimentoResumo(anomes),
       ])
 
       if (filas.status === 'fulfilled') setFilasResumo(filas.value)
@@ -635,8 +676,9 @@ export function GestorPortalApp() {
       if (mart.status === 'fulfilled') setMartResumo(mart.value)
       if (tratamento.status === 'fulfilled') setTratamentoResumo(tratamento.value)
       if (indicadores.status === 'fulfilled') setIndicadoresResumo(indicadores.value)
+      if (ressarcimento.status === 'fulfilled') setRessarcimentoResumo(ressarcimento.value)
 
-      const errors = [filas, iqs, mart, tratamento, indicadores].filter((result) => result.status === 'rejected').length
+      const errors = [filas, iqs, mart, tratamento, indicadores, ressarcimento].filter((result) => result.status === 'rejected').length
       setLoadState({
         status: errors ? 'error' : 'success',
         message: errors
@@ -703,7 +745,9 @@ export function GestorPortalApp() {
           <IndicadoresPage
             anomes={anomes}
             indicadoresResumo={indicadoresResumo}
+            ressarcimentoResumo={ressarcimentoResumo}
             onResumoUpdate={setIndicadoresResumo}
+            onRessarcimentoUpdate={setRessarcimentoResumo}
           />
         ) : null}
         {activePage === 'filas' ? <FilasPage anomes={anomes} filasResumo={filasResumo} /> : null}

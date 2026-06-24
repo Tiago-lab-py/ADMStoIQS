@@ -127,7 +127,16 @@ class IndicadoresContinuidadeService:
                 SELECT
                     cenario,
                     ? AS anomes,
-                    COALESCE(NULLIF(REGIONAL_ORIGEM, ''), 'SEM_REGIONAL') AS regional_origem,
+                    CASE
+                        WHEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, '')))) = 'P' THEN 'CSL'
+                        WHEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, '')))) = 'L' THEN 'NRT'
+                        WHEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, '')))) = 'M' THEN 'NRO'
+                        WHEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, '')))) = 'C' THEN 'LES'
+                        WHEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, '')))) = 'V' THEN 'OES'
+                        WHEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, '')))) IN ('CSL', 'NRT', 'NRO', 'LES', 'OES')
+                            THEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, ''))))
+                        ELSE 'COPEL'
+                    END AS regional_origem,
                     COALESCE(NULLIF(COD_CONJTO_ELET_ANEEL_INTRP, ''), 'SEM_CONJUNTO') AS cod_conjunto_aneel,
                     CAST(NUM_POSTO_UCI AS VARCHAR) AS num_posto_uci,
                     CAST(NUM_UC_UCI AS VARCHAR) AS num_uc_uci,
@@ -405,12 +414,14 @@ class IndicadoresContinuidadeService:
                 COUNT(DISTINCT num_seq_intrp) AS interrupcoes_distintas,
                 (SELECT fonte_denominador FROM denominador_info) AS fonte_denominador,
                 MAX(filtro_faturamento) AS filtro_faturamento,
-                'DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_FATURADA' AS regra_liquido,
+                'ESTADO_4_DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_MOTIVO_NULO_FATURADA' AS regra_liquido,
                 ? AS gerado_em
             FROM base_indicadores
             WHERE duracao_valida
+              AND estado_intrp = '4'
               AND duracao_longa_liquida
               AND protocolo_liquido
+              AND estado_intrp = '4'
               AND (
                     motivo_tratamento IS NULL
                  OR NULLIF(TRIM(motivo_tratamento), '') IS NULL
