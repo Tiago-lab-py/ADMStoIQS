@@ -32,9 +32,9 @@ def create_app() -> FastAPI:
         return {"status": "ok", "app": "ADMStoIQS API"}
 
     app.include_router(router)
-app.include_router(iqs_router)
-app.include_router(pendencias_router)
-app.include_router(filas_router)
+    app.include_router(iqs_router)
+    app.include_router(pendencias_router)
+    app.include_router(filas_router)
 
     return app
 

@@ -496,6 +496,11 @@ def tratamento_horario_negativo(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Falha ao consultar horário negativo: {type(exc).__name__}: {exc}",
+        ) from exc
 
     return TratamentoResponse(
         tipo="horario_negativo",
@@ -525,6 +530,11 @@ def tratamento_sobreposicao_interrupcao(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Falha ao consultar sobreposição de interrupção: {type(exc).__name__}: {exc}",
+        ) from exc
 
     return TratamentoResponse(
         tipo="sobreposicao_interrupcao",
@@ -554,6 +564,11 @@ def tratamento_sobreposicao_uc(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Falha ao consultar sobreposição de UC: {type(exc).__name__}: {exc}",
+        ) from exc
 
     return TratamentoResponse(
         tipo="sobreposicao_uc",
@@ -583,6 +598,11 @@ def tratamento_sem_causa_componente(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except Exception as exc:
+        raise HTTPException(
+            status_code=500,
+            detail=f"Falha ao consultar causa/componente: {type(exc).__name__}: {exc}",
+        ) from exc
 
     return TratamentoResponse(
         tipo="sem_causa_componente",

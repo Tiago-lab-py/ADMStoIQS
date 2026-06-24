@@ -37,7 +37,13 @@ def _parquet_path(anomes: str | None = None) -> Path:
     if not anomes or anomes.upper() == UNION_ANOMES:
         if APURACAO_ATUAL.exists():
             return APURACAO_ATUAL
-        return OMS_UNION_PARQUET
+        if OMS_UNION_PARQUET.exists():
+            return OMS_UNION_PARQUET
+        raise FileNotFoundError(
+            f"Mart UNION não encontrado: {OMS_UNION_PARQUET}. "
+            "Execute a etapa `Atualizar OMS UNION` ou rode "
+            "`python -m backend.scripts.gerar_oms_union`."
+        )
 
     apuracao = APURACAO_DIR / f"agrupamento_oms_APURACAO_{anomes}.parquet"
     if apuracao.exists():
@@ -169,7 +175,18 @@ class ProcessedDataService:
         }
 
     def get_mart_data(self, *, limit: int = 100, offset: int = 0) -> dict[str, Any]:
-        return self.get_data(UNION_ANOMES, limit=limit, offset=offset)
+        try:
+            return self.get_data(UNION_ANOMES, limit=limit, offset=offset)
+        except FileNotFoundError as error:
+            return {
+                "anomes": UNION_ANOMES,
+                "limit": limit,
+                "offset": offset,
+                "total_retornado": 0,
+                "registros": [],
+                "status": "pendente",
+                "mensagem": str(error),
+            }
 
     def get_sample(self, anomes: str | None = None, *, limit: int = 100) -> dict[str, Any]:
         return self.get_data(anomes or UNION_ANOMES, limit=limit, offset=0)
@@ -191,7 +208,21 @@ class ProcessedDataService:
         except Exception:
             pass
 
-        path = _parquet_path(UNION_ANOMES)
+        try:
+            path = _parquet_path(UNION_ANOMES)
+        except FileNotFoundError as error:
+            return {
+                "status": "pendente",
+                "mensagem": str(error),
+                "total_registros": 0,
+                "pendencias_totais": 0,
+                "pendentes": 0,
+                "horario_negativo": 0,
+                "sobreposicao_interrupcao": 0,
+                "sobreposicoes": 0,
+                "rejeitados": 0,
+                "rejeitados_por_atividade": {},
+            }
         with duckdb.connect(database=":memory:") as connection:
             total = connection.execute("SELECT count(*) FROM read_parquet(?)", [str(path)]).fetchone()[0]
             horario = self._count_horario_negativo(connection, path)

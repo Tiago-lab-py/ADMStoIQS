@@ -123,6 +123,17 @@ export type IndicadoresMaterializacao = {
   status: string
 }
 
+export type PendenciasMaterializacao = {
+  anomes: string
+  origem: string
+  parquet: string
+  parquet_atual: string
+  total_pendencias: number
+  horario_negativo: number
+  sobreposicao_interrupcao: number
+  sem_causa_componente: number
+}
+
 const API_BASE_URL = import.meta.env.VITE_API_URL ?? 'http://127.0.0.1:8000'
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -184,6 +195,12 @@ export function getPortalIndicadoresResumo(anomes: string): Promise<IndicadoresR
 
 export function materializarPortalIndicadores(anomes: string): Promise<IndicadoresMaterializacao> {
   return requestJson<IndicadoresMaterializacao>(`/indicadores/continuidade/${encodeURIComponent(anomes)}/materializar`, {
+    method: 'POST',
+  })
+}
+
+export function materializarPortalPendencias(anomes: string): Promise<PendenciasMaterializacao> {
+  return requestJson<PendenciasMaterializacao>(`/apuracao/pendencias/materializar/${encodeURIComponent(anomes)}`, {
     method: 'POST',
   })
 }

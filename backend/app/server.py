@@ -12,6 +12,7 @@ from fastapi import HTTPException, Query, Request
 from pydantic import BaseModel, Field
 from fastapi.middleware.cors import CORSMiddleware
 
+from backend.app.api.filas_routes import router as filas_router
 from backend.app.api.iqs_routes import router as iqs_router
 from backend.app.api.pendencias_routes import router as pendencias_router
 from backend.app.api.routes import router as api_router
@@ -738,6 +739,7 @@ def create_app() -> FastAPI:
     app.include_router(api_router)
     app.include_router(iqs_router)
     app.include_router(pendencias_router)
+    app.include_router(filas_router)
 
     return app
 
