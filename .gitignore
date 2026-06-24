@@ -7,3 +7,5 @@ tools/nodejs/node.exe
 *.parquet
 *.csv
 .tmp
+__pycache__/
+*.pyc
