@@ -53,9 +53,8 @@ class FechamentoApuracaoService:
                 CREATE OR REPLACE TEMP VIEW fechamento_base AS
                 SELECT
                     {select_base}
-                FROM read_parquet(?)
-                """,
-                [str(origem)],
+                FROM read_parquet({_sql_literal(origem)})
+                """
             )
 
             linhas_origem = int(connection.execute("SELECT COUNT(*) FROM fechamento_base").fetchone()[0])
@@ -63,19 +62,18 @@ class FechamentoApuracaoService:
                 temp_path.unlink()
 
             connection.execute(
-                """
+                f"""
                 COPY (
                     SELECT *
                     FROM fechamento_base
-                    WHERE DATA_HORA_INIC_INTRP_TS >= ?::TIMESTAMP
-                      AND DATA_HORA_FIM_INTRP_TS < ?::TIMESTAMP
+                    WHERE DATA_HORA_INIC_INTRP_TS >= {_sql_literal(str(inicio_mes))}::TIMESTAMP
+                      AND DATA_HORA_FIM_INTRP_TS < {_sql_literal(str(proximo_mes))}::TIMESTAMP
                 )
-                TO ? (
+                TO {_sql_literal(temp_path)} (
                     FORMAT PARQUET,
                     COMPRESSION ZSTD
                 )
-                """,
-                [str(inicio_mes), str(proximo_mes), str(temp_path)],
+                """
             )
             linhas_apuracao = int(
                 connection.execute(
@@ -123,8 +121,7 @@ def _colunas_parquet(connection: duckdb.DuckDBPyConnection, parquet: Path) -> li
     return [
         row[0]
         for row in connection.execute(
-            "DESCRIBE SELECT * FROM read_parquet(?)",
-            [str(parquet)],
+            f"DESCRIBE SELECT * FROM read_parquet({_sql_literal(parquet)})",
         ).fetchall()
     ]
 
@@ -132,10 +129,13 @@ def _colunas_parquet(connection: duckdb.DuckDBPyConnection, parquet: Path) -> li
 def _copiar_parquet(origem: Path, destino: Path) -> None:
     with duckdb.connect(database=":memory:") as connection:
         connection.execute(
-            "COPY (SELECT * FROM read_parquet(?)) TO ? (FORMAT PARQUET, COMPRESSION ZSTD)",
-            [str(origem), str(destino)],
+            f"COPY (SELECT * FROM read_parquet({_sql_literal(origem)})) TO {_sql_literal(destino)} (FORMAT PARQUET, COMPRESSION ZSTD)"
         )
 
 
 def _quote_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
+
+
+def _sql_literal(value: str | Path) -> str:
+    return "'" + str(value).replace("\\", "/").replace("'", "''") + "'"
