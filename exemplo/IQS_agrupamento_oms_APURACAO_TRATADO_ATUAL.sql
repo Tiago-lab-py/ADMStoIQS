@@ -1,0 +1,290 @@
+/* =============================================================================
+   ADMStoIQS — Apuração tratada em SQL único para conferência no DBeaver
+   -----------------------------------------------------------------------------
+   Objetivo:
+     Gerar, a partir de IQS.HIST_INTEGRACAO_ADMS, uma visão/tabela equivalente
+     ao mart local:
+
+       data/mart/apuracao/agrupamento_oms_APURACAO_TRATADO_ATUAL.parquet
+
+   Tratamentos aplicados:
+     1. Filtra competência de apuração por início e fim dentro do mês informado.
+     2. Mapeia colunas HIADMS para o layout OMS/ADMS usado pelo ADMStoIQS.
+     3. Remove registros repetidos pela chave:
+          NUM_INTRP_UCI | NUM_POSTO_UCI | NUM_UC_UCI
+     4. Remove duração negativa:
+          DATA_HORA_FIM_INTRP < DATA_HORA_INIC_INTRP
+     5. Remove causa/componente nulos:
+          COD_CAUSA_INTRP e COD_COMP_INTRP obrigatórios.
+     6. Remove sobreposição de interrupção por equipamento:
+          mesma NUM_OPER_CHV_INTRP, TIPO_EQP_INTRP = 'C',
+          uma interrupção contida em outra.
+
+   Parâmetro DBeaver:
+     :anomes  Exemplo: 202605
+
+   Observação:
+     - O SQL mantém REGIONAL_ORIGEM para particionar/exportar CSV por regional.
+     - DTHR_INICIO_INTRP_UC é mapeado por DATA_HORA_INIC_INTRP_ULT_HIADMS porque
+       a lista informada da HIST_INTEGRACAO_ADMS não trouxe uma coluna específica
+       de início por UC. Se existir outra coluna no ambiente, substitua nesse ponto.
+     - Se quiser recriar a tabela, execute o DROP manual abaixo antes do CREATE.
+   ============================================================================= */
+
+/* Opcional:
+DROP TABLE IQS.ADMSTOIQS_APURACAO_TRATADO_CONF PURGE;
+*/
+
+CREATE TABLE IQS.ADMSTOIQS_APURACAO_TRATADO_CONF AS
+WITH parametros AS (
+    SELECT
+        TO_DATE(:anomes || '01', 'YYYYMMDD') AS dt_inicio,
+        ADD_MONTHS(TO_DATE(:anomes || '01', 'YYYYMMDD'), 1) AS dt_fim,
+        :anomes AS anomes_processamento
+    FROM dual
+),
+base_hiadms AS (
+    SELECT
+        h.*,
+        p.anomes_processamento
+    FROM IQS.HIST_INTEGRACAO_ADMS h
+    CROSS JOIN parametros p
+    WHERE h.DATA_HORA_INIC_INTRP_ULT_HIADMS >= p.dt_inicio
+      AND h.DATA_HORA_INIC_INTRP_ULT_HIADMS <  p.dt_fim
+      AND h.DATA_HORA_FIM_INTRP_ULT_HIADMS  >= p.dt_inicio
+      AND h.DATA_HORA_FIM_INTRP_ULT_HIADMS  <  p.dt_fim
+),
+base_mapeada AS (
+    SELECT
+        CAST(h.PID_OCOR_INTRP_ULT_HIADMS AS VARCHAR2(80)) AS PID_INTRP_CONJTO_PIN,
+        CAST(h.PID_POSTO_PIN_PRIM_HIADMS AS VARCHAR2(80)) AS PID_POSTO_PIN,
+        CAST(h.INDIC_AREA_REDE_POSTO_PIN_PRIM_HIADMS AS VARCHAR2(20)) AS INDIC_AREA_REDE_POSTO_PIN,
+        CAST(h.NUM_ALIM_INTRP_PIN_PRIM_HIADMS AS VARCHAR2(80)) AS ALIM_INTRP_PIN,
+        CAST(h.ESTADO_INTRP_ULT_HIADMS AS VARCHAR2(20)) AS ESTADO_INTRP,
+        CAST(h.ALIM_INTRP_PRIM_HIADMS AS VARCHAR2(80)) AS ALIM_INTRP,
+        CAST(h.CAR_SE_INTRP_PRIM_HIADMS AS VARCHAR2(80)) AS CAR_SE,
+        CAST(h.INDIC_INTRP_SE_ALIM_INTRP_ULT_HIADMS AS VARCHAR2(20)) AS INDIC_INTRP_SE_ALIM,
+        CAST(h.PID_OCOR_INTRP_ULT_HIADMS AS VARCHAR2(80)) AS NUM_OCORRENCIA_ADMS,
+        CAST(h.INDIC_INTRP_AT_INTRP_ULT_HIADMS AS VARCHAR2(20)) AS INDIC_INTRP_AT,
+        CAST(h.CONS_INTRP_PRIM_HIADMS AS VARCHAR2(80)) AS CONS_INTRP,
+        CAST(h.KVA_INTRP_PRIM_HIADMS AS VARCHAR2(80)) AS KVA_INTRP,
+        CAST(h.NUM_OPER_CHV_INTRP_ULT_HIADMS AS VARCHAR2(80)) AS NUM_OPER_CHV_INTRP,
+        CAST(h.NUM_FUNCAO_ELET_INTRP_PRIM_HIADMS AS VARCHAR2(120)) AS NUM_FUNCAO_ELET_HCAI,
+        CAST(NULL AS VARCHAR2(4000)) AS DESC_INTRP,
+        CAST(h.INDIC_VALID_POS_OPER_INTRP_ULT_HIADMS AS VARCHAR2(20)) AS VALID_POS_OPERACAO,
+        h.DATA_HORA_INIC_INTRP_ULT_HIADMS AS DATA_HORA_INIC_INTRP,
+        h.DATA_HORA_FIM_INTRP_ULT_HIADMS AS DATA_HORA_FIM_INTRP,
+        CAST(h.TIPO_EQP_INTRP_PRIM_HIADMS AS VARCHAR2(20)) AS TIPO_EQP_INTRP,
+        CAST(h.COORD_X_INTRP_PRIM_HIADMS AS VARCHAR2(80)) AS COORD_X_INTRP,
+        CAST(h.COORD_Y_INTRP_PRIM_HIADMS AS VARCHAR2(80)) AS COORD_Y_INTRP,
+        CAST(h.NUM_SEQ_INTRP_CHVP_HIADMS AS VARCHAR2(80)) AS NUM_SEQ_INTRP,
+        CAST(h.COD_CAUSA_INTRP_ULT_HIADMS AS VARCHAR2(80)) AS COD_CAUSA_INTRP,
+        CAST(h.COD_COMP_INTRP_ULT_HIADMS AS VARCHAR2(80)) AS COD_COMP_INTRP,
+        CAST(h.COD_AREA_ELET_INTRP_ULT_HIADMS AS VARCHAR2(80)) AS COD_AREA_ELET_INTRP,
+        CAST(h.COD_GRUPO_COMP_INTRP_ULT_HIADMS AS VARCHAR2(80)) AS COD_GRUPO_COMP_INTRP,
+        CAST(h.COD_COND_CLIMA_INTRP_ULT_HIADMS AS VARCHAR2(80)) AS COD_COND_CLIMA_INTRP,
+        CAST(h.COD_TIPO_INTRP_ULT_HIADMS AS VARCHAR2(80)) AS COD_TIPO_INTRP,
+        CAST(h.INDIC_JUMP_INTRP_ULT_HIADMS AS VARCHAR2(20)) AS INDIC_JUMP_INTRP,
+        CAST(h.NUM_PROTOC_JUSTIF_RESP_INTRP_ULT_HIADMS AS VARCHAR2(80)) AS NUM_PROTOC_JUSTIF_RESP_INTRP,
+        CAST(h.TIPO_PROTOC_JUSTIF_INTRP_ULT_HIADMS AS VARCHAR2(20)) AS TIPO_PROTOC_JUSTIF_INTRP,
+        CAST(h.COD_CONJTO_ELET_ANEEL_INTRP_PRIM_HIADMS AS VARCHAR2(80)) AS COD_CONJTO_ELET_ANEEL_INTRP,
+        CAST(h.INDIC_CALC_DMIC_INTRP_ULT_HIADMS AS VARCHAR2(20)) AS INDIC_CALC_DMIC_INTRP,
+        CAST(h.INDIC_PONTO_CONEX_INTRP_PRIM_HIADMS AS VARCHAR2(20)) AS INDIC_PONTO_CONEX_INTRP,
+        CAST(h.NUM_GEO_CHV_INTRP_PRIM_HIADMS AS VARCHAR2(80)) AS NUM_GEO_CHV_INTRP,
+        CAST(h.TIPO_REDE_CHV_INTRP_PRIM_HIADMS AS VARCHAR2(20)) AS TIPO_REDE_CHV_INTRP,
+        CAST(h.TIPO_CHV_INTRP_PRIM_HIADMS AS VARCHAR2(20)) AS TIPO_CHV_INTRP,
+        CAST(h.INDIC_PROPR_POSTO_INTRP_PRIM_HIADMS AS VARCHAR2(20)) AS INDIC_PROPR_POSTO_INTRP,
+        CAST(h.NUM_SEQ_INTRP_CHVP_HIADMS AS VARCHAR2(80)) AS PID_INTRP_UCI,
+        CAST(h.NUM_SEQ_INTRP_CHVP_HIADMS AS VARCHAR2(80)) AS NUM_INTRP_UCI,
+        CAST(h.PID_POSTO_PIN_PRIM_HIADMS AS VARCHAR2(80)) AS NUM_POSTO_UCI,
+        CAST(h.NUM_UC_UCI_CHVP_HIADMS AS VARCHAR2(80)) AS NUM_UC_UCI,
+        CAST(h.TIPO_SIT_UC_UCI_PRIM_HIADMS AS VARCHAR2(20)) AS TIPO_SIT_UC_UCI,
+        h.DATA_HORA_INIC_INTRP_ULT_HIADMS AS DTHR_INICIO_INTRP_UC,
+        CAST(h.NUM_INTRP_INIC_MANOBRA_UCI_ULT_HIADMS AS VARCHAR2(80)) AS NUM_INTRP_INIC_MANOBRA_UCI,
+        CAST(h.NUM_MOTIVO_TRAT_DIF_UCI_ULT_HIADMS AS VARCHAR2(80)) AS NUM_MOTIVO_TRAT_DIF_UCI,
+        CAST(h.INDIC_UC_ACESS_UCI_PRIM_HIADMS AS VARCHAR2(20)) AS UC_ACESSANTE,
+        CAST(h.SIGLA_REGIONAL_INTRP_PRIM_HIADMS AS VARCHAR2(20)) AS SIGLA_REGIONAL,
+        CAST(h.NUM_PROTOC_JUSTIF_RESP_UCI_ULT_HIADMS AS VARCHAR2(80)) AS NUM_PROTOC_JUSTIF_RESP_UCI,
+        CAST(h.TIPO_PROTOC_JUSTIF_UCI_ULT_HIADMS AS VARCHAR2(20)) AS TIPO_PROTOC_JUSTIF_UCI,
+        CAST(h.PID_PIN_PRIM_HIADMS AS VARCHAR2(80)) AS PID_PIN,
+        CAST(h.INDIC_PROCES_IND_PIN_ULT_HIADMS AS VARCHAR2(20)) AS INDIC_PROCES_IND_PIN,
+        CAST(h.INDIC_SIT_PROCES_INDIC_UCI_ULT_HIADMS AS VARCHAR2(20)) AS INDIC_SIT_PROCES_INDIC_UCI,
+        CAST(h.PID_OCOR_INTRP_ULT_HIADMS AS VARCHAR2(80)) AS PID,
+        h.anomes_processamento AS ANOMES_PROCESSAMENTO,
+        CASE
+            WHEN UPPER(TRIM(h.SIGLA_REGIONAL_INTRP_PRIM_HIADMS)) IN ('CSL','LES','NRO','NRT','OES')
+                THEN UPPER(TRIM(h.SIGLA_REGIONAL_INTRP_PRIM_HIADMS))
+            WHEN REGEXP_LIKE(UPPER(h.NOME_ARQ_ADMS_HIADMS), '_CSL\.CSV$') THEN 'CSL'
+            WHEN REGEXP_LIKE(UPPER(h.NOME_ARQ_ADMS_HIADMS), '_LES\.CSV$') THEN 'LES'
+            WHEN REGEXP_LIKE(UPPER(h.NOME_ARQ_ADMS_HIADMS), '_NRO\.CSV$') THEN 'NRO'
+            WHEN REGEXP_LIKE(UPPER(h.NOME_ARQ_ADMS_HIADMS), '_NRT\.CSV$') THEN 'NRT'
+            WHEN REGEXP_LIKE(UPPER(h.NOME_ARQ_ADMS_HIADMS), '_OES\.CSV$') THEN 'OES'
+            ELSE 'SEM_REGIONAL'
+        END AS REGIONAL_ORIGEM,
+        h.DTHR_INC_REGIS_HIADMS,
+        h.NOME_ARQ_ADMS_HIADMS
+    FROM base_hiadms h
+),
+base_com_chave AS (
+    SELECT
+        b.*,
+        NVL(b.NUM_INTRP_UCI, '') || '|' ||
+        NVL(b.NUM_POSTO_UCI, '') || '|' ||
+        NVL(b.NUM_UC_UCI, '') AS chave_deduplicacao,
+        ROUND((CAST(b.DATA_HORA_FIM_INTRP AS DATE) - CAST(b.DATA_HORA_INIC_INTRP AS DATE)) * 24 * 60, 6) AS duracao_minutos
+    FROM base_mapeada b
+),
+sem_repetidos AS (
+    SELECT *
+    FROM (
+        SELECT
+            b.*,
+            ROW_NUMBER() OVER (
+                PARTITION BY b.chave_deduplicacao
+                ORDER BY b.DTHR_INC_REGIS_HIADMS DESC NULLS LAST,
+                         b.NOME_ARQ_ADMS_HIADMS DESC NULLS LAST
+            ) AS rn_dedup
+        FROM base_com_chave b
+    )
+    WHERE rn_dedup = 1
+),
+sem_negativos AS (
+    SELECT *
+    FROM sem_repetidos
+    WHERE DATA_HORA_INIC_INTRP IS NULL
+       OR DATA_HORA_FIM_INTRP IS NULL
+       OR DATA_HORA_FIM_INTRP >= DATA_HORA_INIC_INTRP
+),
+sem_causa_componente_nulos AS (
+    SELECT *
+    FROM sem_negativos
+    WHERE TRIM(COD_CAUSA_INTRP) IS NOT NULL
+      AND TRIM(COD_COMP_INTRP) IS NOT NULL
+),
+interrupcoes_para_sobreposicao AS (
+    SELECT DISTINCT
+        NUM_SEQ_INTRP,
+        NUM_OPER_CHV_INTRP,
+        DATA_HORA_INIC_INTRP,
+        DATA_HORA_FIM_INTRP
+    FROM sem_causa_componente_nulos
+    WHERE ESTADO_INTRP = '4'
+      AND TIPO_EQP_INTRP = 'C'
+      AND TRIM(NUM_OPER_CHV_INTRP) IS NOT NULL
+),
+sobreposicao_interrupcao_excluir AS (
+    SELECT DISTINCT a.NUM_SEQ_INTRP
+    FROM interrupcoes_para_sobreposicao a
+    WHERE EXISTS (
+        SELECT 1
+        FROM interrupcoes_para_sobreposicao b
+        WHERE b.NUM_OPER_CHV_INTRP = a.NUM_OPER_CHV_INTRP
+          AND b.NUM_SEQ_INTRP <> a.NUM_SEQ_INTRP
+          AND b.DATA_HORA_INIC_INTRP <= a.DATA_HORA_INIC_INTRP
+          AND b.DATA_HORA_FIM_INTRP  >= a.DATA_HORA_FIM_INTRP
+          AND (
+                b.DATA_HORA_INIC_INTRP < a.DATA_HORA_INIC_INTRP
+             OR b.DATA_HORA_FIM_INTRP  > a.DATA_HORA_FIM_INTRP
+             OR TO_NUMBER(REGEXP_REPLACE(b.NUM_SEQ_INTRP, '[^0-9]', '')) <
+                TO_NUMBER(REGEXP_REPLACE(a.NUM_SEQ_INTRP, '[^0-9]', ''))
+          )
+    )
+),
+tratado AS (
+    SELECT b.*
+    FROM sem_causa_componente_nulos b
+    WHERE NOT EXISTS (
+        SELECT 1
+        FROM sobreposicao_interrupcao_excluir s
+        WHERE s.NUM_SEQ_INTRP = b.NUM_SEQ_INTRP
+    )
+)
+SELECT
+    PID_INTRP_CONJTO_PIN,
+    PID_POSTO_PIN,
+    INDIC_AREA_REDE_POSTO_PIN,
+    ALIM_INTRP_PIN,
+    ESTADO_INTRP,
+    ALIM_INTRP,
+    CAR_SE,
+    INDIC_INTRP_SE_ALIM,
+    NUM_OCORRENCIA_ADMS,
+    INDIC_INTRP_AT,
+    CONS_INTRP,
+    KVA_INTRP,
+    NUM_OPER_CHV_INTRP,
+    NUM_FUNCAO_ELET_HCAI,
+    DESC_INTRP,
+    VALID_POS_OPERACAO,
+    DATA_HORA_INIC_INTRP,
+    DATA_HORA_FIM_INTRP,
+    TIPO_EQP_INTRP,
+    COORD_X_INTRP,
+    COORD_Y_INTRP,
+    NUM_SEQ_INTRP,
+    COD_CAUSA_INTRP,
+    COD_COMP_INTRP,
+    COD_AREA_ELET_INTRP,
+    COD_GRUPO_COMP_INTRP,
+    COD_COND_CLIMA_INTRP,
+    COD_TIPO_INTRP,
+    INDIC_JUMP_INTRP,
+    NUM_PROTOC_JUSTIF_RESP_INTRP,
+    TIPO_PROTOC_JUSTIF_INTRP,
+    COD_CONJTO_ELET_ANEEL_INTRP,
+    INDIC_CALC_DMIC_INTRP,
+    INDIC_PONTO_CONEX_INTRP,
+    NUM_GEO_CHV_INTRP,
+    TIPO_REDE_CHV_INTRP,
+    TIPO_CHV_INTRP,
+    INDIC_PROPR_POSTO_INTRP,
+    PID_INTRP_UCI,
+    NUM_INTRP_UCI,
+    NUM_POSTO_UCI,
+    NUM_UC_UCI,
+    TIPO_SIT_UC_UCI,
+    DTHR_INICIO_INTRP_UC,
+    NUM_INTRP_INIC_MANOBRA_UCI,
+    NUM_MOTIVO_TRAT_DIF_UCI,
+    UC_ACESSANTE,
+    SIGLA_REGIONAL,
+    NUM_PROTOC_JUSTIF_RESP_UCI,
+    TIPO_PROTOC_JUSTIF_UCI,
+    PID_PIN,
+    INDIC_PROCES_IND_PIN,
+    INDIC_SIT_PROCES_INDIC_UCI,
+    PID,
+    ANOMES_PROCESSAMENTO,
+    REGIONAL_ORIGEM,
+    duracao_minutos
+FROM tratado;
+
+/* =============================================================================
+   Conferências sugeridas após criar a tabela
+   =============================================================================
+
+-- 1) Total final
+SELECT COUNT(*) AS total_tratado
+FROM IQS.ADMSTOIQS_APURACAO_TRATADO_CONF;
+
+-- 2) Particionamento por regional para exportação
+SELECT REGIONAL_ORIGEM, COUNT(*) AS linhas
+FROM IQS.ADMSTOIQS_APURACAO_TRATADO_CONF
+GROUP BY REGIONAL_ORIGEM
+ORDER BY REGIONAL_ORIGEM;
+
+-- 3) Garantir que não sobrou duração negativa
+SELECT COUNT(*) AS negativos
+FROM IQS.ADMSTOIQS_APURACAO_TRATADO_CONF
+WHERE DATA_HORA_FIM_INTRP < DATA_HORA_INIC_INTRP;
+
+-- 4) Garantir que não sobrou causa/componente nulo
+SELECT COUNT(*) AS causa_ou_componente_nulo
+FROM IQS.ADMSTOIQS_APURACAO_TRATADO_CONF
+WHERE TRIM(COD_CAUSA_INTRP) IS NULL
+   OR TRIM(COD_COMP_INTRP) IS NULL;
+
+-- 5) Exportação por regional no DBeaver:
+--    Filtre por REGIONAL_ORIGEM = 'CSL', 'LES', 'NRO', 'NRT', 'OES' ou 'SEM_REGIONAL'
+--    e exporte em CSV com delimitador pipe se necessário.
+*/

@@ -146,14 +146,14 @@ class SobreposicaoUcService:
 
         BACKUP_DIR.mkdir(parents=True, exist_ok=True)
         LOGS_DIR.mkdir(parents=True, exist_ok=True)
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        backup = BACKUP_DIR / f"agrupamento_oms_APURACAO_{anomes}_antes_sobreposicao_uc_{timestamp}.parquet"
+        backup = BACKUP_DIR / f"agrupamento_oms_APURACAO_{anomes}_antes_sobreposicao_uc.parquet"
         temp = origem.with_suffix(".sobreposicao_uc.tmp.parquet")
         log = LOGS_DIR / f"log_implantacao_sobreposicao_uc_{anomes}.parquet"
         log_atual = LOGS_DIR / "log_implantacao_sobreposicao_uc_ATUAL.parquet"
         implantado_em = datetime.now().isoformat(timespec="seconds")
 
         with duckdb.connect(database=":memory:") as connection:
+            print("[Sobreposição UC] Etapa 1/6 | Lendo análise e preparando chaves 91...")
             connection.execute(
                 """
                 CREATE TEMP TABLE chaves_uc91 AS
@@ -167,6 +167,7 @@ class SobreposicaoUcService:
             registros_atualizados = int(
                 connection.execute("SELECT COUNT(*) FROM chaves_uc91").fetchone()[0] or 0
             )
+            print(f"[Sobreposição UC] Etapa 1/6 | Chaves a atualizar: {registros_atualizados}")
 
             if registros_atualizados == 0:
                 return SobreposicaoUcImplantacaoResult(
@@ -184,8 +185,13 @@ class SobreposicaoUcService:
                     sem_alteracoes=True,
                 )
 
-            shutil.copy2(origem, backup)
+            if backup.exists():
+                print(f"[Sobreposição UC] Etapa 2/6 | Backup já existe; reutilizando: {backup}")
+            else:
+                print(f"[Sobreposição UC] Etapa 2/6 | Gerando backup completo: {backup}")
+                shutil.copy2(origem, backup)
 
+            print("[Sobreposição UC] Etapa 3/6 | Regravando apuração com NUM_MOTIVO_TRAT_DIF_UCI=91...")
             connection.execute(
                 """
                 CREATE OR REPLACE TEMP TABLE apuracao_uc91 AS
@@ -209,8 +215,10 @@ class SobreposicaoUcService:
                 "COPY apuracao_uc91 TO ? (FORMAT PARQUET)",
                 [str(temp)],
             )
+            print("[Sobreposição UC] Etapa 4/6 | Publicando apuração atualizada...")
             temp.replace(origem)
             self._copy_parquet(connection, origem, atual)
+            print("[Sobreposição UC] Etapa 5/6 | Gravando log nominal da implantação...")
             self._gravar_log_implantacao(
                 connection=connection,
                 analise=analise,
@@ -225,6 +233,7 @@ class SobreposicaoUcService:
                 implantado_em=implantado_em,
             )
 
+        print("[Sobreposição UC] Etapa 6/6 | Recalculando dependências..." if recalcular else "[Sobreposição UC] Etapa 6/6 | Recálculo desabilitado.")
         recalculos = self._recalcular(anomes) if recalcular else {"status": "nao_executado"}
 
         return SobreposicaoUcImplantacaoResult(

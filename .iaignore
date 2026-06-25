@@ -1,0 +1,48 @@
+Temos que desenvover a verificação de sobreposição na UC NUM_UC_UCI, uma inerrução estar contida em outra pelo horario DTHR_INICIO_INTRP_UC e DATA_HORA_FIM_INTRP
+OS  registros que tem ESTADO =4, mesmo PROTOCOLO e MOTIVO =NULO
+Primero  fazer uma analise na tela Sobreposição interrupção do http://127.0.0.1:5173/operacional.html 
+Nela aparecer cards com a quantidade de interrupção a ser classificada com 91. E o CHI que será reduzido
+recalcular os indicadores de dec fec dic fic dmic e ressarcimento.
+Apos apertar o botão de implantar devera ter controle de alteração e popular motivo com 91
+
+Montar o docs e depois implementar 
+
+
+Vazer um segundo modulo de analise de sobreposição UC, este modulo fase 2 Sobreposição UC.
+
+Com registros verificação de sobreposição na UC NUM_UC_UCI, uma interrução interssecção de horario outra pelo horario DTHR_INICIO_INTRP_UC e DATA_HORA_FIM_INTRP
+OS  registros que tem ESTADO =4, mesmo PROTOCOLO e MOTIVO =NULO
+Registro A inicio 0 e fim 2 
+Registro B inicio 1 e fim 3
+
+Para o registro B ajustrar o inicio 1 para coincidencia de Fim 2 e popular a coluana NUM_INTRP_INIC_MANOBRA_UCI com o NUM_SEQ_INTRP do Registro A
+Fazer o Controle de alterações
+
+Montar o DoC e fazer a implementação 
+
+
+MOntar o DOC para ajuste do frontend as telas tem que ter login, fazer o modulo http://127.0.0.1:5173/gestor.html ser a incial para todos os usuários, ter a opção de vavegação para segunda tela http://127.0.0.1:5173/operacional.html
+
+Porem temos que ajustar a Abas Sobreposição INterrupção e Sobreposição UC para a aba sobreposição. A aba Administração poder incuit usuário e perfil de usuario adim, gestor e analista pos
+O cadostro de usuario será por e-mail e senha quando ele solicitar cadastros ficar pedente a autorição e senha inicioa ser inicio123 ao logar a primeira vez parecer na tela uma segunda autenticação com numeros 4 digitos e registrar a alteração.  criar um parque de controle e dados do usuario e registro da senha ciptrografada 
+
+Montar o doc e um sprint para implantação cuidado para não quebrar o codigo
+Modudulos ainda não desenvolcidos Como alteração Causa/componete implantação de janela de ise e implantação de dia critico deixa visivel mas com flag em desenvovimento
+
+Aceito sugestoes
+
+
+No orquestrador está rodando o processo de sobreposição automatica?
+Sobreposição de interrupção Sobreposição UC e Sobreposição Fase 2 
+**Tratamentos sistêmicos automáticos usam `SISTEMA_AI` como executor.** 
+
+No apurador de indicador para o calculo de FIC contar o fic se NUM_INTRP_INIC_MANOBRA_UCI for nulo 
+ajustar o indicadores calculando com este expuxgo 
+Checar quais são os expurgos de dic e fic e listar antes de alterar
+
+ler 39_jornada_usuario_governanca_operacional.md e atualizar
+
+aceito sugestão sobre como fazer a governaça do sobreposição!
+
+Passar o comando para rodar a sobreposição e depois recalcular os indicadores
+

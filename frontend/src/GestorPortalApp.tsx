@@ -162,6 +162,24 @@ function formatBytes(value?: number | null): string {
   return `${(bytes / 1024 ** index).toLocaleString('pt-BR', { maximumFractionDigits: 2 })} ${units[index]}`
 }
 
+const REGRA_LIQUIDA_INDICADORES =
+  'ESTADO_4_DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_MOTIVO_NULO_INDIC_SIT_PROCES_INDIC_NULO_FATURADA_FIC_SEM_MANOBRA_INICIAL'
+
+function formatRegraLiquidaIndicadores(value?: string | null): string {
+  const regra = value || REGRA_LIQUIDA_INDICADORES
+  const labels: Record<string, string> = {
+    DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_FATURADA:
+      'Estado 4 · duração ≥ 3 min · protocolo 0 · motivo nulo · situação indicador nula · UC faturada · FIC sem manobra inicial',
+    ESTADO_4_DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_MOTIVO_NULO_FATURADA:
+      'Estado 4 · duração ≥ 3 min · protocolo 0 · motivo nulo · situação indicador nula · UC faturada · FIC sem manobra inicial',
+    ESTADO_4_DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_MOTIVO_NULO_FATURADA_FIC_SEM_MANOBRA_INICIAL:
+      'Estado 4 · duração ≥ 3 min · protocolo 0 · motivo nulo · situação indicador nula · UC faturada · FIC sem manobra inicial',
+    [REGRA_LIQUIDA_INDICADORES]:
+      'Estado 4 · duração ≥ 3 min · protocolo 0 · motivo nulo · situação indicador nula · UC faturada · FIC sem manobra inicial',
+  }
+  return labels[regra] ?? regra
+}
+
 function copyText(value?: string | null): void {
   if (!value) return
   void navigator.clipboard?.writeText(value)
@@ -493,7 +511,8 @@ function IndicadoresPage({
           </div>
           <div>
             <span>Regra líquido</span>
-            <strong>{copel?.regra_liquido ?? '-'}</strong>
+            <strong>{formatRegraLiquidaIndicadores(copel?.regra_liquido)}</strong>
+            <small>{copel?.regra_liquido || REGRA_LIQUIDA_INDICADORES}</small>
           </div>
           <div>
             <span>Fórmula ressarcimento</span>

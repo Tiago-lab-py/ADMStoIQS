@@ -120,6 +120,7 @@ class IndicadoresContinuidadeService:
             """,
             [str(origem_antes), str(origem_depois)],
         )
+        self._garantir_colunas_timestamp(connection)
         connection.execute(
             """
             CREATE TEMP TABLE base_indicadores AS
@@ -144,19 +145,23 @@ class IndicadoresContinuidadeService:
                     CAST(NUM_INTRP_UCI AS VARCHAR) AS num_intrp_uci,
                     CAST(NUM_INTRP_INIC_MANOBRA_UCI AS VARCHAR) AS num_intrp_inic_manobra_uci,
                     COALESCE(
+                        TRY_CAST(DTHR_INICIO_INTRP_UC_TS AS TIMESTAMP),
+                        TRY_CAST(DATA_HORA_INIC_INTRP_TS AS TIMESTAMP),
                         try_strptime(NULLIF(DTHR_INICIO_INTRP_UC, ''), '%Y-%m-%d %H:%M:%S'),
                         try_strptime(NULLIF(DTHR_INICIO_INTRP_UC, ''), '%d/%m/%Y %H:%M:%S'),
                         try_strptime(NULLIF(DATA_HORA_INIC_INTRP, ''), '%Y-%m-%d %H:%M:%S'),
                         try_strptime(NULLIF(DATA_HORA_INIC_INTRP, ''), '%d/%m/%Y %H:%M:%S')
                     ) AS inicio_uc,
                     COALESCE(
+                        TRY_CAST(DATA_HORA_FIM_INTRP_TS AS TIMESTAMP),
                         try_strptime(NULLIF(DATA_HORA_FIM_INTRP, ''), '%Y-%m-%d %H:%M:%S'),
                         try_strptime(NULLIF(DATA_HORA_FIM_INTRP, ''), '%d/%m/%Y %H:%M:%S')
                     ) AS fim_uc,
                     CAST(ESTADO_INTRP AS VARCHAR) AS estado_intrp,
                     CAST(NUM_MOTIVO_TRAT_DIF_UCI AS VARCHAR) AS motivo_tratamento,
                     CAST(TIPO_PROTOC_JUSTIF_UCI AS VARCHAR) AS tipo_protocolo_uci,
-                    CAST(TIPO_PROTOC_JUSTIF_INTRP AS VARCHAR) AS tipo_protocolo_interrupcao
+                    CAST(TIPO_PROTOC_JUSTIF_INTRP AS VARCHAR) AS tipo_protocolo_interrupcao,
+                    CAST(INDIC_SIT_PROCES_INDIC_UCI AS VARCHAR) AS indic_sit_proces_indic_uci
                 FROM base_raw
                 WHERE NUM_UC_UCI IS NOT NULL
                   AND NULLIF(CAST(NUM_UC_UCI AS VARCHAR), '') IS NOT NULL
@@ -174,6 +179,22 @@ class IndicadoresContinuidadeService:
             """,
             [anomes],
         )
+
+    @staticmethod
+    def _garantir_colunas_timestamp(connection: duckdb.DuckDBPyConnection) -> None:
+        columns = {
+            row[0]
+            for row in connection.execute("DESCRIBE base_raw").fetchall()
+        }
+        for column in (
+            "DATA_HORA_INIC_INTRP_TS",
+            "DATA_HORA_FIM_INTRP_TS",
+            "DTHR_INICIO_INTRP_UC_TS",
+        ):
+            if column not in columns:
+                connection.execute(f"ALTER TABLE base_raw ADD COLUMN {column} TIMESTAMP")
+        if "INDIC_SIT_PROCES_INDIC_UCI" not in columns:
+            connection.execute("ALTER TABLE base_raw ADD COLUMN INDIC_SIT_PROCES_INDIC_UCI VARCHAR")
 
     def _aplicar_filtro_faturamento(
         self,
@@ -420,7 +441,7 @@ class IndicadoresContinuidadeService:
                 COUNT(DISTINCT num_seq_intrp) AS interrupcoes_distintas,
                 (SELECT fonte_denominador FROM denominador_info) AS fonte_denominador,
                 MAX(filtro_faturamento) AS filtro_faturamento,
-                'ESTADO_4_DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_MOTIVO_NULO_FATURADA_FIC_SEM_MANOBRA_INICIAL' AS regra_liquido,
+                'ESTADO_4_DURACAO_MAIOR_IGUAL_3_PROTOCOLO_0_MOTIVO_NULO_INDIC_SIT_PROCES_INDIC_NULO_FATURADA_FIC_SEM_MANOBRA_INICIAL' AS regra_liquido,
                 ? AS gerado_em
             FROM base_indicadores
             WHERE duracao_valida
@@ -430,6 +451,10 @@ class IndicadoresContinuidadeService:
               AND (
                     motivo_tratamento IS NULL
                  OR NULLIF(TRIM(motivo_tratamento), '') IS NULL
+              )
+              AND (
+                    indic_sit_proces_indic_uci IS NULL
+                 OR NULLIF(TRIM(indic_sit_proces_indic_uci), '') IS NULL
               )
             GROUP BY
                 cenario,

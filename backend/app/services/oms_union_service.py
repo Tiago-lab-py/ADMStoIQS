@@ -314,12 +314,19 @@ class OmsUnionService:
                         *,
                         COALESCE(
                             TRY_STRPTIME(DATA_HORA_INIC_INTRP, '%d/%m/%Y %H:%M:%S'),
-                            TRY_STRPTIME(DATA_HORA_INIC_INTRP, '%Y-%m-%d %H:%M:%S')
+                            TRY_STRPTIME(DATA_HORA_INIC_INTRP, '%Y-%m-%d %H:%M:%S'),
+                            TRY_CAST(DATA_HORA_INIC_INTRP AS TIMESTAMP)
                         ) AS __inicio_ts,
                         COALESCE(
                             TRY_STRPTIME(DATA_HORA_FIM_INTRP, '%d/%m/%Y %H:%M:%S'),
-                            TRY_STRPTIME(DATA_HORA_FIM_INTRP, '%Y-%m-%d %H:%M:%S')
-                        ) AS __fim_ts
+                            TRY_STRPTIME(DATA_HORA_FIM_INTRP, '%Y-%m-%d %H:%M:%S'),
+                            TRY_CAST(DATA_HORA_FIM_INTRP AS TIMESTAMP)
+                        ) AS __fim_ts,
+                        COALESCE(
+                            TRY_STRPTIME(DTHR_INICIO_INTRP_UC, '%d/%m/%Y %H:%M:%S'),
+                            TRY_STRPTIME(DTHR_INICIO_INTRP_UC, '%Y-%m-%d %H:%M:%S'),
+                            TRY_CAST(DTHR_INICIO_INTRP_UC AS TIMESTAMP)
+                        ) AS __inicio_uc_ts
                     FROM oms_source
                 ),
                 enriched AS (
@@ -341,7 +348,10 @@ class OmsUnionService:
                     FROM enriched
                 )
                 SELECT
-                    * EXCLUDE (__inicio_ts, __fim_ts, __rn, REGIONAL_ORIGEM),
+                    * EXCLUDE (__inicio_ts, __fim_ts, __inicio_uc_ts, __rn, REGIONAL_ORIGEM),
+                    __inicio_ts AS DATA_HORA_INIC_INTRP_TS,
+                    __fim_ts AS DATA_HORA_FIM_INTRP_TS,
+                    __inicio_uc_ts AS DTHR_INICIO_INTRP_UC_TS,
                     CASE
                         WHEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, '')))) = 'P' THEN 'CSL'
                         WHEN UPPER(TRIM(COALESCE(NULLIF(SIGLA_REGIONAL, ''), NULLIF(REGIONAL_ORIGEM, '')))) = 'L' THEN 'NRT'

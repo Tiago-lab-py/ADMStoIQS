@@ -257,8 +257,7 @@ class SobreposicaoUcFase2Service:
         if not analise.exists():
             self.materializar(anomes)
 
-        timestamp = datetime.now().strftime("%Y%m%d%H%M%S")
-        backup = APURACAO_DIR / "backups" / f"agrupamento_oms_APURACAO_{anomes}_antes_sobreposicao_uc_fase2_{timestamp}.parquet"
+        backup = APURACAO_DIR / "backups" / f"agrupamento_oms_APURACAO_{anomes}_antes_sobreposicao_uc_fase2.parquet"
         temp = origem.with_suffix(".sobreposicao_uc_fase2.tmp.parquet")
         log = LOG_DIR / f"log_implantacao_sobreposicao_uc_fase2_{anomes}.parquet"
         log_atual = LOG_DIR / "log_implantacao_sobreposicao_uc_fase2_ATUAL.parquet"
@@ -309,7 +308,11 @@ class SobreposicaoUcFase2Service:
                 )
 
             backup.parent.mkdir(parents=True, exist_ok=True)
-            shutil.copy2(origem, backup)
+            if backup.exists():
+                print(f"[Sobreposição UC Fase 2] Backup já existe; reutilizando: {backup}")
+            else:
+                print(f"[Sobreposição UC Fase 2] Gerando backup completo: {backup}")
+                shutil.copy2(origem, backup)
 
             connection.execute(
                 """
